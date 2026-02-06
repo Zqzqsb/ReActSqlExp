@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/imdb/imdb.sqlite",
+  "database": "imdb",
+  "description": "Spider benchmark database: imdb"
+}

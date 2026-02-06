@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/match_season/match_season.sqlite",
+  "database": "match_season",
+  "description": "Spider benchmark database: match_season"
+}

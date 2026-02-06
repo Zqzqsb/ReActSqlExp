@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/perpetrator/perpetrator.sqlite",
+  "database": "perpetrator",
+  "description": "Spider benchmark database: perpetrator"
+}

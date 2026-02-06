@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/concert_singer/concert_singer.sqlite",
+  "database": "concert_singer",
+  "description": "Spider benchmark database: concert_singer"
+}

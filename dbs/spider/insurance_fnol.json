@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/insurance_fnol/insurance_fnol.sqlite",
+  "database": "insurance_fnol",
+  "description": "Spider benchmark database: insurance_fnol"
+}

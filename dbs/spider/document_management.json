@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/document_management/document_management.sqlite",
+  "database": "document_management",
+  "description": "Spider benchmark database: document_management"
+}

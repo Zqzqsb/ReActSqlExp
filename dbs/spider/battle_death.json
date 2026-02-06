@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/battle_death/battle_death.sqlite",
+  "database": "battle_death",
+  "description": "Spider benchmark database: battle_death"
+}

@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/cre_Drama_Workshop_Groups/cre_Drama_Workshop_Groups.sqlite",
+  "database": "cre_Drama_Workshop_Groups",
+  "description": "Spider benchmark database: cre_Drama_Workshop_Groups"
+}

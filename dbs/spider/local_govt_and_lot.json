@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/local_govt_and_lot/local_govt_and_lot.sqlite",
+  "database": "local_govt_and_lot",
+  "description": "Spider benchmark database: local_govt_and_lot"
+}

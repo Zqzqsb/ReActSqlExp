@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/university_basketball/university_basketball.sqlite",
+  "database": "university_basketball",
+  "description": "Spider benchmark database: university_basketball"
+}

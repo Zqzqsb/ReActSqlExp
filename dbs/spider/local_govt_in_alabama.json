@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/local_govt_in_alabama/local_govt_in_alabama.sqlite",
+  "database": "local_govt_in_alabama",
+  "description": "Spider benchmark database: local_govt_in_alabama"
+}

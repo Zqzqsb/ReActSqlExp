@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/insurance_and_eClaims/insurance_and_eClaims.sqlite",
+  "database": "insurance_and_eClaims",
+  "description": "Spider benchmark database: insurance_and_eClaims"
+}

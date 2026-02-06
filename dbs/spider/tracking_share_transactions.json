@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/tracking_share_transactions/tracking_share_transactions.sqlite",
+  "database": "tracking_share_transactions",
+  "description": "Spider benchmark database: tracking_share_transactions"
+}

@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/medicine_enzyme_interaction/medicine_enzyme_interaction.sqlite",
+  "database": "medicine_enzyme_interaction",
+  "description": "Spider benchmark database: medicine_enzyme_interaction"
+}

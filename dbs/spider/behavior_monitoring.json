@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/behavior_monitoring/behavior_monitoring.sqlite",
+  "database": "behavior_monitoring",
+  "description": "Spider benchmark database: behavior_monitoring"
+}

@@ -1,0 +1,56 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+.ipynb_checkpoints/
+
+# Config files with secrets
+llm_config.json
+*.env
+.env.local
+
+# Logs (but keep result logs in results/)
+/*.log
+logs/
+
+# Build output
+bin/
+dist/
+build/
+
+# Temporary files
+tmp/
+temp/
+
+# Large dataset files (download via scripts/download_datasets.sh)
+benchmarks/spider/database/
+benchmarks/bird/dev/dev_databases/
+benchmarks/bird/dev/dev_databases.zip
+
+# Stashed data (created by scripts/stash_data.sh)
+.data_stash/

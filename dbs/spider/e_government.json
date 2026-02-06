@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/e_government/e_government.sqlite",
+  "database": "e_government",
+  "description": "Spider benchmark database: e_government"
+}

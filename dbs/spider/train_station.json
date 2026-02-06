@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/train_station/train_station.sqlite",
+  "database": "train_station",
+  "description": "Spider benchmark database: train_station"
+}

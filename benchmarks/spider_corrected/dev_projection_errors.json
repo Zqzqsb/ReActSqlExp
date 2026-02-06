@@ -1,0 +1,299 @@
+[
+  {
+    "db_id": "car_1",
+    "question": "Which model saves the most gasoline? That is to say, have the maximum miles per gallon.",
+    "query": "SELECT T1.Model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId = T2.Id ORDER BY T2.mpg DESC LIMIT 1;",
+    "result_fields": [
+      "Model"
+    ],
+    "result_fields_description": "Model: The name of the car model with the highest fuel efficiency.",
+    "id": 134
+  },
+  {
+    "db_id": "car_1",
+    "question": "What model has the most different versions?",
+    "query": "SELECT Model FROM CAR_NAMES GROUP BY Model ORDER BY count(*) DESC LIMIT 1;",
+    "result_fields": [
+      "Model"
+    ],
+    "result_fields_description": "Model: Car model name with the most different versions",
+    "id": 143
+  },
+  {
+    "db_id": "employee_hire_evaluation",
+    "question": "Sort employee names by their age in ascending order.",
+    "query": "SELECT name FROM employee ORDER BY age",
+    "result_fields": [
+      "name"
+    ],
+    "result_fields_description": "name: Employee's full name or given identifier",
+    "id": 262
+  },
+  {
+    "db_id": "employee_hire_evaluation",
+    "question": "List the names of employees and sort in ascending order of age.",
+    "query": "SELECT name FROM employee ORDER BY age",
+    "result_fields": [
+      "name"
+    ],
+    "result_fields_description": "name: Employee's full name or given name",
+    "id": 263
+  },
+  {
+    "db_id": "cre_Doc_Template_Mgt",
+    "question": "Show paragraph details for paragraph with text 'Korea ' .",
+    "query": "select other_details from paragraphs where paragraph_text like 'korea'",
+    "result_fields": [
+      "other_details"
+    ],
+    "result_fields_description": "other_details: Additional details about the paragraph containing 'Korea'.",
+    "id": 362
+  },
+  {
+    "db_id": "cre_Doc_Template_Mgt",
+    "question": "What are the details for the paragraph that includes the text 'Korea ' ?",
+    "query": "select other_details from paragraphs where paragraph_text like 'korea'",
+    "result_fields": [
+      "other_details"
+    ],
+    "result_fields_description": "other_details: Additional information about the paragraph containing 'Korea'",
+    "id": 363
+  },
+  {
+    "db_id": "cre_Doc_Template_Mgt",
+    "question": "What is the document id and name with greatest number of paragraphs?",
+    "query": "SELECT T1.document_id , T2.document_name FROM Paragraphs AS T1 JOIN Documents AS T2 ON T1.document_id = T2.document_id GROUP BY T1.document_id ORDER BY count(*) DESC LIMIT 1",
+    "result_fields": [
+      "document_id",
+      "document_name"
+    ],
+    "result_fields_description": "document_id: Unique identifier for the document; document_name: Name or title of the document",
+    "id": 374
+  },
+  {
+    "db_id": "wta_1",
+    "question": "What are the full names of all players, sorted by birth date?",
+    "query": "SELECT first_name , last_name FROM players ORDER BY birth_date",
+    "result_fields": [
+      "first_name",
+      "last_name"
+    ],
+    "result_fields_description": "first_name: Player's given name; last_name: Player's family name or surname",
+    "id": 457
+  },
+  {
+    "db_id": "wta_1",
+    "question": "What are the full names of all left handed players, in order of birth date?",
+    "query": "SELECT first_name , last_name FROM players WHERE hand = 'L' ORDER BY birth_date",
+    "result_fields": [
+      "first_name",
+      "last_name"
+    ],
+    "result_fields_description": "first_name: Player's given name; last_name: Player's family name",
+    "id": 459
+  },
+  {
+    "db_id": "wta_1",
+    "question": "Find the year that has the most number of matches.",
+    "query": "SELECT YEAR FROM matches GROUP BY YEAR ORDER BY count(*) DESC LIMIT 1",
+    "result_fields": [
+      "YEAR"
+    ],
+    "result_fields_description": "YEAR: Year when the match was played",
+    "id": 462
+  },
+  {
+    "db_id": "battle_death",
+    "question": "List the name, date and result of each battle.",
+    "query": "SELECT name , date FROM battle",
+    "result_fields": [
+      "name",
+      "date"
+    ],
+    "result_fields_description": "name: Name of the battle; date: Date when the battle occurred",
+    "id": 494
+  },
+  {
+    "db_id": "battle_death",
+    "question": "What are the death and injury situations caused by the ship with tonnage 't'?",
+    "query": "SELECT T1.killed , T1.injured FROM death AS T1 JOIN ship AS t2 ON T1.caused_by_ship_id = T2.id WHERE T2.tonnage = 't'",
+    "result_fields": [
+      "killed",
+      "injured"
+    ],
+    "result_fields_description": "killed: Number of people killed by the ship; injured: Number of people injured by the ship",
+    "id": 497
+  },
+  {
+    "db_id": "student_transcripts_tracking",
+    "question": "Which address holds the most number of students currently? List the address id and all lines.",
+    "query": "SELECT T1.address_id , T1.line_1 , T1.line_2 FROM Addresses AS T1 JOIN Students AS T2 ON T1.address_id = T2.current_address_id GROUP BY T1.address_id ORDER BY count(*) DESC LIMIT 1",
+    "result_fields": [
+      "address_id",
+      "line_1",
+      "line_2"
+    ],
+    "result_fields_description": "address_id: Unique identifier for the address record; line_1: First line of the street address; line_2: Second line of the street address (optional)",
+    "id": 562
+  },
+  {
+    "db_id": "student_transcripts_tracking",
+    "question": "What is the earliest date of a transcript release, and what details can you tell me?",
+    "query": "SELECT transcript_date , other_details FROM Transcripts ORDER BY transcript_date ASC LIMIT 1",
+    "result_fields": [
+      "transcript_date",
+      "other_details"
+    ],
+    "result_fields_description": "transcript_date: The date when the transcript was released; other_details: Additional information about the transcript release",
+    "id": 567
+  },
+  {
+    "db_id": "student_transcripts_tracking",
+    "question": "List all the student details in reversed lexicographical order.",
+    "query": "SELECT other_student_details FROM Students ORDER BY other_student_details DESC",
+    "result_fields": [
+      "other_student_details"
+    ],
+    "result_fields_description": "other_student_details: Additional details about each student",
+    "id": 580
+  },
+  {
+    "db_id": "student_transcripts_tracking",
+    "question": "What other details can you tell me about students in reverse alphabetical order?",
+    "query": "SELECT other_student_details FROM Students ORDER BY other_student_details DESC",
+    "result_fields": [
+      "other_student_details"
+    ],
+    "result_fields_description": "other_student_details: Additional information about each student record",
+    "id": 581
+  },
+  {
+    "db_id": "student_transcripts_tracking",
+    "question": "Describe the section h.",
+    "query": "SELECT section_description FROM Sections WHERE section_name = 'h'",
+    "result_fields": [
+      "section_description"
+    ],
+    "result_fields_description": "section_description: Description of the section named 'h'",
+    "id": 582
+  },
+  {
+    "db_id": "tvshow",
+    "question": "What are all of the episodes ordered by ratings?",
+    "query": "SELECT Episode FROM TV_series ORDER BY rating",
+    "result_fields": [
+      "Episode"
+    ],
+    "result_fields_description": "Episode: Individual episode of the TV series",
+    "id": 615
+  },
+  {
+    "db_id": "world_1",
+    "question": "Which language is the most popular in Aruba?",
+    "query": "SELECT T2.Language FROM country AS T1 JOIN countrylanguage AS T2 ON T1.Code = T2.CountryCode WHERE T1.Name = \"Aruba\" ORDER BY Percentage DESC LIMIT 1",
+    "result_fields": [
+      "Language"
+    ],
+    "result_fields_description": "Language: Most spoken language in Aruba by percentage",
+    "id": 713
+  },
+  {
+    "db_id": "world_1",
+    "question": "Which countries have either English or Dutch as an official language?",
+    "query": "SELECT * FROM country AS T1 JOIN countrylanguage AS T2 ON T1.Code = T2.CountryCode WHERE T2.Language = \"English\" AND IsOfficial = \"T\" UNION SELECT * FROM country AS T1 JOIN countrylanguage AS T2 ON T1.Code = T2.CountryCode WHERE T2.Language = \"Dutch\" AND IsOfficial = \"T\"",
+    "result_fields": [
+      "Code",
+      "Name",
+      "Continent",
+      "Region",
+      "SurfaceArea",
+      "IndepYear",
+      "Population",
+      "LifeExpectancy",
+      "GNP",
+      "GNPOld",
+      "LocalName",
+      "GovernmentForm",
+      "HeadOfState",
+      "Capital",
+      "Code2",
+      "CountryCode",
+      "Language",
+      "IsOfficial",
+      "Percentage"
+    ],
+    "result_fields_description": "Code: Unique country code identifier.; Name: Official name of the country.; Continent: Continent where the country is located.; Region: Geographic region within the continent.; SurfaceArea: Total surface area of the country.; IndepYear: Year the country gained independence.; Population: Total population of the country.; LifeExpectancy: Average life expectancy at birth.; GNP: Gross National Product.; GNPOld: Previous GNP value.; LocalName: Name of the country in local language.; GovernmentForm: Type of government system.; HeadOfState: Name of the country's head of state.; Capital: Capital city's identifier.; Code2: Two-letter country code.; CountryCode: Code linking to the country table.; Language: Name of the language spoken.; IsOfficial: Indicates if the language is official.; Percentage: Percentage of population speaking the language.",
+    "id": 756
+  },
+  {
+    "db_id": "world_1",
+    "question": "Which language is the most popular on the Asian continent?",
+    "query": "SELECT T2.Language FROM country AS T1 JOIN countrylanguage AS T2 ON T1.Code = T2.CountryCode WHERE T1.Continent = \"Asia\" GROUP BY T2.Language ORDER BY COUNT (*) DESC LIMIT 1",
+    "result_fields": [
+      "Language"
+    ],
+    "result_fields_description": "Language: Most spoken language in Asian countries",
+    "id": 757
+  },
+  {
+    "db_id": "world_1",
+    "question": "Find the city with the largest population that uses English.",
+    "query": "SELECT T1.Name , T1.Population FROM city AS T1 JOIN countrylanguage AS T2 ON T1.CountryCode = T2.CountryCode WHERE T2.Language = \"English\" ORDER BY T1.Population DESC LIMIT 1",
+    "result_fields": [
+      "Name",
+      "Population"
+    ],
+    "result_fields_description": "Name: Name of the city.; Population: Total number of people living in the city.",
+    "id": 761
+  },
+  {
+    "db_id": "world_1",
+    "question": "What are the cities whose population is between 160000 and 900000?",
+    "query": "SELECT name FROM city WHERE Population BETWEEN 160000 AND 900000",
+    "result_fields": [
+      "name"
+    ],
+    "result_fields_description": "name: Name of the city with population in specified range",
+    "id": 813
+  },
+  {
+    "db_id": "orchestra",
+    "question": "What are the record companies of orchestras in descending order of years in which they were founded?",
+    "query": "SELECT Record_Company FROM orchestra ORDER BY Year_of_Founded DESC",
+    "result_fields": [
+      "Record_Company"
+    ],
+    "result_fields_description": "Record_Company: Name of the orchestra's recording company",
+    "id": 829
+  },
+  {
+    "db_id": "orchestra",
+    "question": "Please show the record formats of orchestras in ascending order of count.",
+    "query": "SELECT Major_Record_Format FROM orchestra GROUP BY Major_Record_Format ORDER BY COUNT(*) ASC",
+    "result_fields": [
+      "Major_Record_Format"
+    ],
+    "result_fields_description": "Major_Record_Format: The primary format used for an orchestra's recordings.",
+    "id": 851
+  },
+  {
+    "db_id": "orchestra",
+    "question": "What are the major record formats of orchestras, sorted by their frequency?",
+    "query": "SELECT Major_Record_Format FROM orchestra GROUP BY Major_Record_Format ORDER BY COUNT(*) ASC",
+    "result_fields": [
+      "Major_Record_Format"
+    ],
+    "result_fields_description": "Major_Record_Format: Primary recording medium used by orchestras",
+    "id": 852
+  },
+  {
+    "db_id": "network_1",
+    "question": "What is the grade of each high schooler?",
+    "query": "SELECT grade FROM Highschooler",
+    "result_fields": [
+      "grade"
+    ],
+    "result_fields_description": "grade: Academic year level of the high school student",
+    "id": 868
+  }
+]

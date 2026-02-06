@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "dbs/sqlite/test.db",
+  "database": "test",
+  "description": "SQLite测试数据库 - 包含用户、订单、产品表"
+}

@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/performance_attendance/performance_attendance.sqlite",
+  "database": "performance_attendance",
+  "description": "Spider benchmark database: performance_attendance"
+}

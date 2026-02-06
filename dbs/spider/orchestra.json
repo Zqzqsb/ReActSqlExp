@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/orchestra/orchestra.sqlite",
+  "database": "orchestra",
+  "description": "Spider benchmark database: orchestra"
+}

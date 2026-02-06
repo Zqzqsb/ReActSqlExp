@@ -1,0 +1,6 @@
+{
+  "type": "sqlite",
+  "file_path": "benchmarks/spider/database/cre_Docs_and_Epenses/cre_Docs_and_Epenses.sqlite",
+  "database": "cre_Docs_and_Epenses",
+  "description": "Spider benchmark database: cre_Docs_and_Epenses"
+}
