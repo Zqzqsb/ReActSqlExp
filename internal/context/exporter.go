@@ -6,24 +6,24 @@ import (
 	"time"
 )
 
-// ExportOptions 导出选项
+// ExportOptions export options
 type ExportOptions struct {
-	// 指定要导出的表（为空则导出所有表）
+	// Tables to export (empty = all)
 	Tables []string
-	// 是否包含详细的列信息
+	// Include detailed column info
 	IncludeColumns bool
-	// 是否包含索引信息
+	// Include index info
 	IncludeIndexes bool
-	// 是否包含 Rich Context
+	// Include Rich Context
 	IncludeRichContext bool
-	// 是否包含统计信息
+	// Include statistics
 	IncludeStats bool
 }
 
-// DefaultExportOptions 默认导出选项
+// DefaultExportOptions default export options
 func DefaultExportOptions() *ExportOptions {
 	return &ExportOptions{
-		Tables:             nil, // 导出所有表
+		Tables:             nil, // Export all tables
 		IncludeColumns:     true,
 		IncludeIndexes:     true,
 		IncludeRichContext: true,
@@ -31,7 +31,7 @@ func DefaultExportOptions() *ExportOptions {
 	}
 }
 
-// ExportToPrompt 导出为 LLM 友好的 Prompt 格式
+// ExportToPrompt exports to LLM-friendly Prompt format
 func (c *SharedContext) ExportToPrompt(opts *ExportOptions) string {
 	if opts == nil {
 		opts = DefaultExportOptions()
@@ -39,15 +39,15 @@ func (c *SharedContext) ExportToPrompt(opts *ExportOptions) string {
 
 	var sb strings.Builder
 
-	// 1. 数据库概览
+	// 1. Database overview
 	sb.WriteString("# Database Schema Context\n\n")
 	sb.WriteString(fmt.Sprintf("**Database**: %s (%s)\n", c.DatabaseName, c.DatabaseType))
 
-	// 过滤要导出的表
+	// Filter tables to export
 	tables := c.filterTables(opts.Tables)
 	sb.WriteString(fmt.Sprintf("**Tables**: %d\n\n", len(tables)))
 
-	// 2. 表详情
+	// 2. Table details
 	for _, tableName := range tables {
 		table, exists := c.Tables[tableName]
 		if !exists {
@@ -57,21 +57,21 @@ func (c *SharedContext) ExportToPrompt(opts *ExportOptions) string {
 		sb.WriteString("---\n\n")
 		sb.WriteString(fmt.Sprintf("## Table: `%s`\n\n", table.Name))
 
-		// 统计信息
+		// Statistics
 		if opts.IncludeStats {
 			sb.WriteString(fmt.Sprintf("- **Row Count**: %d\n", table.RowCount))
 			sb.WriteString(fmt.Sprintf("- **Columns**: %d\n", len(table.Columns)))
 			sb.WriteString(fmt.Sprintf("- **Indexes**: %d\n\n", len(table.Indexes)))
 		}
 
-		// 表注释
+		// Table comment
 		if table.Comment != "" {
 			sb.WriteString(fmt.Sprintf("**Description**: %s\n\n", table.Comment))
 		}
 
-		// Rich Context（业务信息和数据质量问题）
+		// Rich Context (business info and quality issues)
 		if opts.IncludeRichContext && len(table.RichContext) > 0 {
-			// 分离数据质量问题和业务信息
+			// Separate quality issues and business info
 			qualityIssues := make(map[string]RichContextValue)
 			businessContext := make(map[string]RichContextValue)
 
@@ -83,7 +83,7 @@ func (c *SharedContext) ExportToPrompt(opts *ExportOptions) string {
 				}
 			}
 
-			// 优先显示数据质量问题（更重要）
+			// Show quality issues first (higher priority)
 			if len(qualityIssues) > 0 {
 				sb.WriteString("### ⚠️ Data Quality Issues\n\n")
 				sb.WriteString("> **CRITICAL**: These issues directly affect SQL query correctness.\n\n")
@@ -93,7 +93,7 @@ func (c *SharedContext) ExportToPrompt(opts *ExportOptions) string {
 				sb.WriteString("\n")
 			}
 
-			// 然后显示业务上下文
+			// Then show business context
 			if len(businessContext) > 0 {
 				sb.WriteString("### Business Context\n\n")
 				for key, note := range businessContext {
@@ -103,7 +103,7 @@ func (c *SharedContext) ExportToPrompt(opts *ExportOptions) string {
 			}
 		}
 
-		// 列信息
+		// Column info
 		if opts.IncludeColumns && len(table.Columns) > 0 {
 			sb.WriteString("### Columns\n\n")
 			sb.WriteString("| Column | Type | Nullable | Default | Key | Comment |\n")
@@ -136,7 +136,7 @@ func (c *SharedContext) ExportToPrompt(opts *ExportOptions) string {
 			sb.WriteString("\n")
 		}
 
-		// 索引信息
+		// Index info
 		if opts.IncludeIndexes && len(table.Indexes) > 0 {
 			sb.WriteString("### Indexes\n\n")
 			for _, idx := range table.Indexes {
@@ -153,7 +153,7 @@ func (c *SharedContext) ExportToPrompt(opts *ExportOptions) string {
 			sb.WriteString("\n")
 		}
 
-		// 外键关系（简洁格式）
+		// Foreign key relationships (simple format)
 		if len(table.ForeignKeys) > 0 {
 			sb.WriteString("### Foreign Keys\n\n")
 			for _, fk := range table.ForeignKeys {
@@ -167,14 +167,14 @@ func (c *SharedContext) ExportToPrompt(opts *ExportOptions) string {
 	return sb.String()
 }
 
-// ExportTableToPrompt 导出单个表为 Prompt 格式
+// ExportTableToPrompt exports single table as Prompt format
 func (c *SharedContext) ExportTableToPrompt(tableName string) string {
 	opts := DefaultExportOptions()
 	opts.Tables = []string{tableName}
 	return c.ExportToPrompt(opts)
 }
 
-// ExportToCompactPrompt 导出为紧凑的 Prompt 格式（用于 Schema Linking）
+// ExportToCompactPrompt exports as compact Prompt format (for Schema Linking)
 func (c *SharedContext) ExportToCompactPrompt(opts *ExportOptions) string {
 	if opts == nil {
 		opts = DefaultExportOptions()
@@ -182,10 +182,10 @@ func (c *SharedContext) ExportToCompactPrompt(opts *ExportOptions) string {
 
 	var sb strings.Builder
 
-	// 数据库信息
+	// Database info
 	sb.WriteString(fmt.Sprintf("Database: %s\n\n", c.DatabaseName))
 
-	// 过滤要导出的表
+	// Filter tables to export
 	tables := c.filterTables(opts.Tables)
 
 	for _, tableName := range tables {
@@ -194,17 +194,17 @@ func (c *SharedContext) ExportToCompactPrompt(opts *ExportOptions) string {
 			continue
 		}
 
-		// 表名和行数
+		// Table name and row count
 		sb.WriteString(fmt.Sprintf("Table %s (%d rows):\n", table.Name, table.RowCount))
 
-		// 列信息（紧凑格式）
+		// Column info (compact format)
 		if opts.IncludeColumns {
 			for _, col := range table.Columns {
 				pk := ""
 				if col.IsPrimaryKey {
 					pk = " [PK]"
 				}
-				// 检查是否是外键
+				// Check if foreign key
 				fkInfo := ""
 				for _, fk := range table.ForeignKeys {
 					if fk.ColumnName == col.Name {
@@ -216,9 +216,9 @@ func (c *SharedContext) ExportToCompactPrompt(opts *ExportOptions) string {
 			}
 		}
 
-		// Rich Context（关键业务信息和数据质量问题）
+		// Rich Context (key business info and quality issues)
 		if opts.IncludeRichContext && len(table.RichContext) > 0 {
-			// 分离数据质量问题和业务信息
+			// Separate quality issues and business info
 			qualityIssues := make(map[string]RichContextValue)
 			businessNotes := make(map[string]RichContextValue)
 
@@ -230,7 +230,7 @@ func (c *SharedContext) ExportToCompactPrompt(opts *ExportOptions) string {
 				}
 			}
 
-			// 优先显示数据质量问题
+			// Show quality issues first
 			if len(qualityIssues) > 0 {
 				sb.WriteString("  ⚠️ Data Quality Issues:\n")
 				for key, note := range qualityIssues {
@@ -245,7 +245,7 @@ func (c *SharedContext) ExportToCompactPrompt(opts *ExportOptions) string {
 				}
 			}
 
-			// 然后显示业务信息
+			// Then show business info
 			if len(businessNotes) > 0 {
 				sb.WriteString("  Business Notes:\n")
 				for key, note := range businessNotes {
@@ -267,7 +267,7 @@ func (c *SharedContext) ExportToCompactPrompt(opts *ExportOptions) string {
 	return sb.String()
 }
 
-// ExportToSchemaLinking 导出为 Schema Linking 格式（最紧凑）
+// ExportToSchemaLinking exports as Schema Linking format (most compact)
 func (c *SharedContext) ExportToSchemaLinking(tableNames []string) string {
 	var sb strings.Builder
 
@@ -283,11 +283,11 @@ func (c *SharedContext) ExportToSchemaLinking(tableNames []string) string {
 			sb.WriteString(" | ")
 		}
 
-		// 表名
+		// Table name
 		sb.WriteString(table.Name)
 		sb.WriteString(" (")
 
-		// 列名列表
+		// Column name list
 		colNames := make([]string, len(table.Columns))
 		for j, col := range table.Columns {
 			if col.IsPrimaryKey {
@@ -303,12 +303,12 @@ func (c *SharedContext) ExportToSchemaLinking(tableNames []string) string {
 	return sb.String()
 }
 
-// filterTables 过滤要导出的表
+// filterTables filters tables to export
 func (c *SharedContext) filterTables(tableNames []string) []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	// 如果没有指定表，返回所有表
+	// If no tables specified, return all
 	if len(tableNames) == 0 {
 		result := make([]string, 0, len(c.Tables))
 		for name := range c.Tables {
@@ -317,7 +317,7 @@ func (c *SharedContext) filterTables(tableNames []string) []string {
 		return result
 	}
 
-	// 过滤存在的表
+	// Filter existing tables
 	result := make([]string, 0, len(tableNames))
 	for _, name := range tableNames {
 		if _, exists := c.Tables[name]; exists {

@@ -11,7 +11,7 @@ import (
 	"reactsql/internal/adapter"
 )
 
-// LoadInputFile 从文件加载输入结果
+// LoadInputFile loads input results from file
 func LoadInputFile(filePath string) ([]InputResult, error) {
 	// Check file extension to determine format
 	if strings.HasSuffix(filePath, ".json") && !strings.HasSuffix(filePath, ".jsonl") {
@@ -27,7 +27,7 @@ func LoadInputFile(filePath string) ([]InputResult, error) {
 	var results []InputResult
 	scanner := bufio.NewScanner(strings.NewReader(string(fileContent)))
 
-	// 设置更大的缓冲区以处理长JSON行 (10MB)
+	// Set larger buffer for long JSON lines (10MB)
 	const maxCapacity = 30 * 1024 * 1024 // 30MB
 	buf := make([]byte, maxCapacity)
 	scanner.Buffer(buf, maxCapacity)
@@ -52,65 +52,65 @@ func LoadInputFile(filePath string) ([]InputResult, error) {
 	return results, nil
 }
 
-// LoadSingleResultFile 从单个JSON文件加载结果
+// LoadSingleResultFile loads results from a single JSON file
 func LoadSingleResultFile(filePath string) (*InputResult, error) {
-	// 读取文件
+	// Read file
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("读取文件失败: %v", err)
+		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
 
-	// 解析JSON
+	// Parse JSON
 	var result InputResult
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("解析JSON失败: %v", err)
+		return nil, fmt.Errorf("failed to parse JSON: %v", err)
 	}
 
 	return &result, nil
 }
 
-// LoadResultsFromDirectory 从目录加载所有结果文件
+// LoadResultsFromDirectory loads all results from directory
 func LoadResultsFromDirectory(dirPath string) ([]InputResult, error) {
-	// 检查目录是否存在
+	// Check if directory exists
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("目录不存在: %s", dirPath)
+		return nil, fmt.Errorf("directory not found: %s", dirPath)
 	}
 
-	// 首先检查目录中是否有info.jsonl文件直接加载
+	// First check for info.jsonl file to load directly
 	jsonlPath := filepath.Join(dirPath, "info.jsonl")
 	if _, err := os.Stat(jsonlPath); err == nil {
 		return LoadInputFile(jsonlPath)
 	}
 
 	var results []InputResult
-	// 使用集合记录已处理的文件，避免重复
+	// Use set to track processed files, avoid duplicates
 	processedIDs := make(map[int]bool)
 
-	// 遍历目录中的所有JSON文件
+	// Walk all JSON files in directory
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// 只处理JSON文件且跳过隐藏文件
+		// Only process JSON files, skip hidden files
 		if !info.IsDir() &&
 			(strings.HasSuffix(info.Name(), ".json") || strings.HasSuffix(info.Name(), ".jsonl")) &&
 			!strings.HasPrefix(info.Name(), ".") {
-			// 跳过分析结果文件和其它生成文件
+			// Skip analysis and generated files
 			if strings.Contains(info.Name(), ".analysis") ||
 				strings.Contains(info.Name(), "report") ||
 				strings.Contains(info.Name(), "summary") {
 				return nil
 			}
 
-			// 如果是.jsonl文件，使用LoadInputFile加载
+			// For .jsonl files, use LoadInputFile
 			if strings.HasSuffix(info.Name(), ".jsonl") {
 				batchResults, err := LoadInputFile(path)
 				if err != nil {
 					return nil
 				}
 
-				// 添加新的结果，避免重复
+				// Add new results, avoid duplicates
 				for _, r := range batchResults {
 					if !processedIDs[r.ID] {
 						processedIDs[r.ID] = true
@@ -126,7 +126,7 @@ func LoadResultsFromDirectory(dirPath string) ([]InputResult, error) {
 				return nil
 			}
 
-			// 避免重复加载相同ID的记录
+			// Avoid duplicate ID loading
 			if !processedIDs[result.ID] {
 				processedIDs[result.ID] = true
 				results = append(results, *result)
@@ -137,13 +137,13 @@ func LoadResultsFromDirectory(dirPath string) ([]InputResult, error) {
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("遍历目录失败: %v", err)
+		return nil, fmt.Errorf("failed to walk directory: %v", err)
 	}
 
 	return results, nil
 }
 
-// EnsureDirectoryExists 确保目录存在
+// EnsureDirectoryExists ensures directory exists
 func EnsureDirectoryExists(dirPath string) error {
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
 		return os.MkdirAll(dirPath, 0755)
@@ -151,9 +151,9 @@ func EnsureDirectoryExists(dirPath string) error {
 	return nil
 }
 
-// DetectDBType 根据目录名自动检测数据库类型
+// DetectDBType auto-detects DB type from directory name
 func DetectDBType(dirPath string) DBType {
-	// 检查路径中是否包含PostgreSQL相关的关键字
+	// Check if path contains PostgreSQL keywords
 	if strings.Contains(dirPath, "pg_") ||
 		strings.Contains(dirPath, "_pg") ||
 		strings.Contains(dirPath, "postgres") ||
@@ -161,27 +161,27 @@ func DetectDBType(dirPath string) DBType {
 		return DBTypePostgreSQL
 	}
 
-	// 默认为SQLite
+	// Default to SQLite
 	return DBTypeSQLite
 }
 
-// ConvertResultFormat 将数据库结果转换为ExecResult格式
+// ConvertResultFormat converts DB result to ExecResult format
 func ConvertResultFormat(data []map[string]interface{}) [][]string {
 	if len(data) == 0 {
 		return [][]string{}
 	}
 
-	// 提取列名作为第一行
+	// Extract column names as first row
 	headers := make([]string, 0, len(data[0]))
 	for k := range data[0] {
 		headers = append(headers, k)
 	}
 
-	// 创建结果矩阵
+	// Create result matrix
 	rows := make([][]string, 0, len(data)+1)
-	rows = append(rows, headers) // 添加表头行
+	rows = append(rows, headers) // Add header row
 
-	// 添加数据行
+	// Add data rows
 	for _, row := range data {
 		dataRow := make([]string, 0, len(headers))
 		for _, h := range headers {
@@ -194,17 +194,17 @@ func ConvertResultFormat(data []map[string]interface{}) [][]string {
 	return rows
 }
 
-// ConvertQueryResultFormat 将adapter.QueryResult转换为ExecResult格式
+// ConvertQueryResultFormat converts adapter.QueryResult to ExecResult format
 func ConvertQueryResultFormat(result *adapter.QueryResult) [][]string {
 	if result == nil || len(result.Rows) == 0 {
 		return [][]string{}
 	}
 
-	// 创建结果矩阵
+	// Create result matrix
 	rows := make([][]string, 0, len(result.Rows)+1)
-	rows = append(rows, result.Columns) // 添加表头行
+	rows = append(rows, result.Columns) // Add header row
 
-	// 添加数据行
+	// Add data rows
 	for _, row := range result.Rows {
 		dataRow := make([]string, 0, len(result.Columns))
 		for _, col := range result.Columns {

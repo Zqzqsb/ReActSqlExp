@@ -34,7 +34,7 @@ llm_config.json
 *.env
 .env.local
 
-# Logs (but keep result logs in results/)
+# Logs
 /*.log
 logs/
 
@@ -45,6 +45,11 @@ build/
 /gen_all_dev
 /gen_rich_context_spider
 /gen_rich_context_bird
+/analyze_results
+/eval
+
+# Evaluation results (regeneratable)
+results/
 
 # Temporary files
 tmp/
@@ -61,5 +66,3 @@ contexts/sqlite/
 
 # Stashed data (created by scripts/stash_data.sh)
 .data_stash/
-analyze_results
-eval

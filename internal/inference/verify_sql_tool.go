@@ -9,18 +9,18 @@ import (
 	"reactsql/internal/adapter"
 )
 
-// VerifySQLTool SQL 语法验证工具
+// VerifySQLTool SQL syntax verification tool
 type VerifySQLTool struct {
 	adapter adapter.DBAdapter
 	dbType  string
 }
 
-// Name 工具名称
+// Name returns tool name
 func (t *VerifySQLTool) Name() string {
 	return "verify_sql"
 }
 
-// Description 工具描述
+// Description returns tool description
 func (t *VerifySQLTool) Description() string {
 	return `Verify SQL syntax before submitting final answer.
 This tool checks for common syntax errors and validates the SQL using database dry-run.
@@ -36,21 +36,21 @@ Common errors detected:
 Use this tool BEFORE giving your final answer to ensure SQL correctness.`
 }
 
-// Call 执行验证
+// Call executes verification
 func (t *VerifySQLTool) Call(ctx context.Context, input string) (string, error) {
 	sql := strings.TrimSpace(input)
 
 	fmt.Printf("\n🔍 Tool Call [verify_sql]:\n")
 	fmt.Printf("Input SQL: %s\n", sql)
 
-	// 1. 快速静态检查（避免明显错误）
+	// 1. Quick static check (avoid obvious errors)
 	if err := t.quickCheck(sql); err != nil {
 		result := fmt.Sprintf("❌ SQL validation failed (static check):\n%v\n\nPlease fix the error and try again.", err)
 		fmt.Printf("Output: %s\n", result)
 		return result, nil
 	}
 
-	// 2. 使用数据库执行验证，而不仅仅是 dry-run
+	// 2. Use DB execution for validation, not just dry-run
 	data, err := t.adapter.ExecuteQuery(ctx, sql)
 	if err != nil {
 		result := fmt.Sprintf("❌ SQL validation failed (database check):\n%v\n\nPlease fix the error and try again.", err)
@@ -58,19 +58,19 @@ func (t *VerifySQLTool) Call(ctx context.Context, input string) (string, error) 
 		return result, nil
 	}
 
-	// 3. 检查结果行数
+	// 3. Check result row count
 	var warnings []string
 	if len(data.Rows) == 0 {
 		warnings = append(warnings, "⚠️  Warning: Query returned 0 rows. Please double-check:\n  - Are the JOIN conditions correct?\n  - Are the WHERE conditions too restrictive?\n  - Does the data actually exist in the database?")
 	}
 
-	// 4. 检查重复行
+	// 4. Check duplicate rows
 	rows := convertQueryResultFormat(data.Rows)
 	if duplicateWarning := t.checkDuplicateRows(rows); duplicateWarning != "" {
 		warnings = append(warnings, duplicateWarning)
 	}
 
-	// 5. 构建最终结果
+	// 5. Build final result
 	result := "✓ SQL is valid! You can now provide the final answer."
 	if len(warnings) > 0 {
 		result += "\n" + strings.Join(warnings, "\n")
@@ -80,14 +80,14 @@ func (t *VerifySQLTool) Call(ctx context.Context, input string) (string, error) 
 	return result, nil
 }
 
-// quickCheck 快速静态检查
+// quickCheck quick static check
 func (t *VerifySQLTool) quickCheck(sql string) error {
-	// 1. 检查非法别名（最常见的错误）
+	// 1. Check illegal aliases (most common)
 	if err := t.checkIllegalAliases(sql); err != nil {
 		return err
 	}
 
-	// 2. 检查括号匹配
+	// 2. Check parentheses matching
 	if err := t.checkParentheses(sql); err != nil {
 		return err
 	}
@@ -95,10 +95,10 @@ func (t *VerifySQLTool) quickCheck(sql string) error {
 	return nil
 }
 
-// checkIllegalAliases 检查非法别名
+// checkIllegalAliases checks illegal aliases
 func (t *VerifySQLTool) checkIllegalAliases(sql string) error {
-	// 匹配 AS 后面跟着函数调用形式的别名
-	// 例如: AS count(*), AS sum(*), AS max(*) 等
+	// Match AS followed by function-call aliases
+	// e.g.: AS count(*), AS sum(*), AS max(*) etc.
 	illegalAliasPattern := regexp.MustCompile(`(?i)\s+AS\s+([a-z_]+\s*\([^)]*\))`)
 
 	matches := illegalAliasPattern.FindAllStringSubmatch(sql, -1)
@@ -115,7 +115,7 @@ func (t *VerifySQLTool) checkIllegalAliases(sql string) error {
 	return nil
 }
 
-// checkParentheses 检查括号匹配
+// checkParentheses checks parentheses matching
 func (t *VerifySQLTool) checkParentheses(sql string) error {
 	stack := 0
 	for i, char := range sql {
@@ -136,7 +136,7 @@ func (t *VerifySQLTool) checkParentheses(sql string) error {
 	return nil
 }
 
-// NewVerifySQLTool 创建验证工具
+// NewVerifySQLTool creates verification tool
 func NewVerifySQLTool(adapter adapter.DBAdapter, dbType string) *VerifySQLTool {
 	return &VerifySQLTool{
 		adapter: adapter,
@@ -144,20 +144,20 @@ func NewVerifySQLTool(adapter adapter.DBAdapter, dbType string) *VerifySQLTool {
 	}
 }
 
-// checkDuplicateRows 检查结果中是否有重复行
+// checkDuplicateRows checks for duplicate rows
 func (t *VerifySQLTool) checkDuplicateRows(rows [][]string) string {
-	if len(rows) <= 2 { // 没有数据行或只有一行数据
+	if len(rows) <= 2 { // no data rows or only one row
 		return ""
 	}
 
 	seen := make(map[string]bool)
-	dataRows := rows[1:] // 排除标题行
+	dataRows := rows[1:] // Exclude header row
 
 	for _, row := range dataRows {
-		// 为行创建一个唯一的键
+		// Create unique key for row
 		rowKey := strings.Join(row, "||<SEP>||")
 		if seen[rowKey] {
-			// 发现重复
+			// Duplicate found
 			return fmt.Sprintf("Warning: The query returned duplicate rows (e.g., %v). Review the question to determine if duplicates should be removed using DISTINCT.", row)
 		}
 		seen[rowKey] = true
@@ -166,7 +166,7 @@ func (t *VerifySQLTool) checkDuplicateRows(rows [][]string) string {
 	return ""
 }
 
-// convertQueryResultFormat 将查询结果从 map 转换为二维字符串数组
+// convertQueryResultFormat converts query result from map to 2D string array
 func convertQueryResultFormat(data []map[string]interface{}) [][]string {
 	if len(data) == 0 {
 		return nil

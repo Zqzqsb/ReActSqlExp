@@ -15,7 +15,7 @@ import (
 	contextpkg "reactsql/internal/context"
 )
 
-// WorkerAgent 工作Agent
+// WorkerAgent worker agent
 type WorkerAgent struct {
 	id        string
 	taskID    string
@@ -26,7 +26,7 @@ type WorkerAgent struct {
 	executor  *agents.Executor
 }
 
-// NewWorkerAgent 创建工作Agent
+// NewWorkerAgent creates worker agent
 func NewWorkerAgent(
 	id string,
 	taskID string,
@@ -45,7 +45,7 @@ func NewWorkerAgent(
 		sharedCtx: sharedCtx,
 	}
 
-	// 创建工具
+	// Create tools
 	sqlTool := &WorkerSQLTool{
 		adapter:   adapter,
 		sharedCtx: sharedCtx,
@@ -59,12 +59,12 @@ func NewWorkerAgent(
 		tableName: tableName,
 	}
 
-	// 创建LangChain executor
+	// Create LangChain executor
 	executor, err := agents.Initialize(
 		llm,
 		[]tools.Tool{sqlTool, richContextTool},
 		agents.ZeroShotReactDescription,
-		agents.WithMaxIterations(25), // 增加迭代次数以支持复杂表分析
+		agents.WithMaxIterations(25), // Increase iterations for complex table analysis
 	)
 	if err != nil {
 		return nil, err
@@ -74,18 +74,18 @@ func NewWorkerAgent(
 	return agent, nil
 }
 
-// Execute 执行分析任务（两阶段）
+// Execute runs analysis task (multi-phase)
 func (a *WorkerAgent) Execute(ctx context.Context) error {
 	if !a.sharedCtx.Quiet {
 		fmt.Printf("\n[%s] Starting analysis of table '%s'...\n", a.id, a.tableName)
 	}
 
-	// 标记任务开始
+	// marks task started
 	if err := a.sharedCtx.StartTask(a.taskID); err != nil {
 		return err
 	}
 
-	// ========== 阶段1：收集基础静态信息 ==========
+	// ========== Phase 1: Collect basic metadata ==========
 	if !a.sharedCtx.Quiet {
 		fmt.Printf("\n[%s] Phase 1: Collecting basic metadata...\n", a.id)
 	}
@@ -94,7 +94,7 @@ func (a *WorkerAgent) Execute(ctx context.Context) error {
 		return fmt.Errorf("phase 1 failed: %w", err)
 	}
 
-	// ========== 阶段2：ReAct 探索 Rich Context ==========
+	// ========== Phase 2: ReAct explore Rich Context ==========
 	if !a.sharedCtx.Quiet {
 		fmt.Printf("\n[%s] Phase 2: Exploring rich context...\n", a.id)
 	}
@@ -102,7 +102,7 @@ func (a *WorkerAgent) Execute(ctx context.Context) error {
 		return err
 	}
 
-	// Phase 3: 生成表描述（基于已收集的信息）
+	// Phase 3: Generate table description (from collected info)
 	if !a.sharedCtx.Quiet {
 		fmt.Printf("\n[%s] Phase 3: Generating table description...\n", a.id)
 	}
@@ -110,10 +110,10 @@ func (a *WorkerAgent) Execute(ctx context.Context) error {
 	if !a.sharedCtx.Quiet {
 		fmt.Printf("[%s] Warning: Failed to generate description: %v\n", a.id, err)
 	}
-		// 不中断流程，描述生成失败不影响整体
+		// Do not interrupt flow, description gen failure is non-fatal
 	}
 
-	// 完成任务
+	// completes task
 	a.sharedCtx.CompleteTask(a.taskID, map[string]interface{}{
 		"table": a.tableName,
 	})
@@ -124,9 +124,9 @@ func (a *WorkerAgent) Execute(ctx context.Context) error {
 	return nil
 }
 
-// collectBasicMetadata 阶段1：收集基础静态信息（固定流程）
+// collectBasicMetadata Phase 1: collect basic metadata (fixed flow)
 func (a *WorkerAgent) collectBasicMetadata(ctx context.Context) error {
-	// 根据数据库类型生成查询语句
+	// Generate queries based on DB type
 	var queries string
 	switch a.adapter.GetDatabaseType() {
 	case "MySQL":
@@ -165,14 +165,14 @@ Execute these queries ONE BY ONE. After all queries complete, say "Phase 1 compl
 		return err
 	}
 
-	// Phase 1 完成后，立即构建该表的基础 metadata
+	// Build basic metadata after Phase 1 completes
 	a.sharedCtx.BuildTableMetadata(a.tableName)
 	return nil
 }
 
-// exploreRichContext 阶段2：ReAct 循环探索业务信息
+// exploreRichContext Phase 2: ReAct loop for business insights
 func (a *WorkerAgent) exploreRichContext(ctx context.Context) error {
-	// 获取数据库类型特定的 SQL 语法提示
+	// Get DB-type specific SQL syntax hints
 	dbType := a.adapter.GetDatabaseType()
 	sqlHint := ""
 	switch dbType {
@@ -263,7 +263,7 @@ Continue exploring. Say "Phase 2 complete" when done.`,
 	return err
 }
 
-// WorkerSQLTool SQL工具（用于工作Agent）
+// WorkerSQLTool SQL tool (for worker agent)
 type WorkerSQLTool struct {
 	adapter   adapter.DBAdapter
 	sharedCtx *contextpkg.SharedContext
@@ -291,7 +291,7 @@ func (t *WorkerSQLTool) Call(ctx context.Context, input string) (string, error) 
 		fmt.Printf("\n[%s] SQL: %s\n", t.agentID, input)
 	}
 
-	// 执行SQL
+	// Execute SQL
 	result, err := t.adapter.ExecuteQuery(ctx, input)
 	if err != nil {
 		return "", err
@@ -301,17 +301,17 @@ func (t *WorkerSQLTool) Call(ctx context.Context, input string) (string, error) 
 		return fmt.Sprintf("SQL Error: %s", result.Error), nil
 	}
 
-	// 格式化结果
+	// Format results
 	output := fmt.Sprintf("✓ Query successful! (%d rows, %dms)\n\n", result.RowCount, result.ExecutionTime)
 
-	// 显示结果
+	// Show results
 	if result.RowCount > 0 {
 		output += "Results:\n"
 		jsonBytes, _ := json.MarshalIndent(result.Rows, "", "  ")
 		output += string(jsonBytes) + "\n"
 	}
 
-	// 自动保存数据到SharedContext
+	// Auto-save data to SharedContext
 	queryType := detectQueryType(input)
 	if queryType != "" {
 		dataKey := fmt.Sprintf("%s_%s", t.tableName, queryType)
@@ -325,26 +325,26 @@ func (t *WorkerSQLTool) Call(ctx context.Context, input string) (string, error) 
 func detectQueryType(sql string) string {
 	sql = strings.ToUpper(sql)
 
-	// 列信息查询
+	// Column info query
 	if strings.Contains(sql, "DESCRIBE") ||
 		strings.Contains(sql, "PRAGMA TABLE_INFO") ||
 		strings.Contains(sql, "INFORMATION_SCHEMA.COLUMNS") {
 		return "columns"
 	}
 
-	// 索引信息查询
+	// Index info query
 	if strings.Contains(sql, "SHOW INDEX") ||
 		strings.Contains(sql, "PRAGMA INDEX_LIST") ||
 		strings.Contains(sql, "PG_INDEXES") {
 		return "indexes"
 	}
 
-	// 行数统计查询
+	// Row count query
 	if strings.Contains(sql, "COUNT(*)") {
 		return "rowcount"
 	}
 
-	// 外键信息查询
+	// Foreign key info query
 	if strings.Contains(sql, "FOREIGN_KEY_LIST") ||
 		strings.Contains(sql, "SHOW CREATE TABLE") ||
 		(strings.Contains(sql, "TABLE_CONSTRAINTS") && strings.Contains(sql, "FOREIGN KEY")) {
@@ -354,9 +354,9 @@ func detectQueryType(sql string) string {
 	return ""
 }
 
-// generateTableDescription 生成表的业务描述
+// generateTableDescription generates table business description
 func (a *WorkerAgent) generateTableDescription(ctx context.Context) error {
-	// 获取表的元数据和 Rich Context
+	// Get table metadata and Rich Context
 	table, exists := a.sharedCtx.Tables[a.tableName]
 	if !exists {
 		// Table metadata may not have been built yet, skip description
@@ -366,7 +366,7 @@ func (a *WorkerAgent) generateTableDescription(ctx context.Context) error {
 		return nil
 	}
 
-	// 构建 Prompt
+	// Build Prompt
 	prompt := fmt.Sprintf(`You are a database expert. Based on the table metadata and business insights collected, generate a concise one-sentence description of this table's purpose.
 
 Table: %s
@@ -390,7 +390,7 @@ Output format: Just the description sentence, no extra text.
 
 Description:`
 
-	// 调用 LLM
+	// Call LLM
 	response, err := a.llm.Call(ctx, prompt)
 	if err != nil {
 		return err
@@ -398,7 +398,7 @@ Description:`
 
 	description := strings.TrimSpace(response)
 
-	// 保存描述
+	// Save description
 	if err := a.sharedCtx.SetTableDescription(a.tableName, description); err != nil {
 		return err
 	}
@@ -409,7 +409,7 @@ Description:`
 	return nil
 }
 
-// SetRichContextTool 设置Rich Context的工具
+// SetRichContextTool tool for setting Rich Context
 type SetRichContextTool struct {
 	sharedCtx *contextpkg.SharedContext
 	agentID   string
@@ -449,7 +449,7 @@ IMPORTANT:
 }
 
 func (t *SetRichContextTool) Call(ctx context.Context, input string) (string, error) {
-	// 解析输入: key|value
+	// Parse input: key|value
 	parts := strings.SplitN(input, "|", 2)
 	if len(parts) != 2 {
 		return "", fmt.Errorf("invalid format, expected: key|value")
@@ -458,8 +458,8 @@ func (t *SetRichContextTool) Call(ctx context.Context, input string) (string, er
 	key := strings.TrimSpace(parts[0])
 	value := strings.TrimSpace(parts[1])
 
-	// 清理value：移除可能包含的Thought/Action/Observation文本
-	// 查找第一个换行符后跟"Thought:"或"Action:"的位置
+	// Clean value: remove Thought/Action/Observation text
+	// Find newline followed by Thought: or Action:
 	if idx := strings.Index(value, "\n\nThought:"); idx > 0 {
 		value = value[:idx]
 	}
@@ -479,7 +479,7 @@ func (t *SetRichContextTool) Call(ctx context.Context, input string) (string, er
 		return "", fmt.Errorf("key and value cannot be empty")
 	}
 
-	// 保存到SharedContext（设置7天过期）
+	// Save to SharedContext (7-day expiry)
 	expiresAt := time.Now().Add(7 * 24 * time.Hour).Format(time.RFC3339)
 	err := t.sharedCtx.SetTableRichContext(t.tableName, key, value, expiresAt)
 	if err != nil {

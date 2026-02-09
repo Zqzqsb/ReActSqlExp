@@ -9,14 +9,14 @@ import (
 	"time"
 )
 
-// TaskStatus 任务状态
+// TaskStatus task status enum
 type TaskStatus int
 
 const (
-	TaskRegistered TaskStatus = iota // 已注册
-	TaskRunning                      // 执行中
-	TaskCompleted                    // 已完成
-	TaskFailed                       // 失败
+	TaskRegistered TaskStatus = iota // registered
+	TaskRunning                      // running
+	TaskCompleted                    // completed
+	TaskFailed                       // failed
 )
 
 func (s TaskStatus) String() string {
@@ -34,7 +34,7 @@ func (s TaskStatus) String() string {
 	}
 }
 
-// TaskInfo 任务信息
+// TaskInfo task information
 type TaskInfo struct {
 	ID          string                 `json:"id"`
 	AgentID     string                 `json:"agent_id"`
@@ -46,70 +46,70 @@ type TaskInfo struct {
 	Error       string                 `json:"error,omitempty"`
 }
 
-// SchemaDiagram 数据库关系图
+// SchemaDiagram database relationship diagram
 type SchemaDiagram struct {
 	Format      string `json:"format"`      // "mermaid-er"
-	Description string `json:"description"` // 图表描述
-	Content     string `json:"content"`     // Mermaid 代码
+	Description string `json:"description"` // Diagram description
+	Content     string `json:"content"`     // Mermaid code
 }
 
-// SharedContext 共享上下文（多Agent协作）
+// SharedContext shared context (multi-agent collaboration)
 type SharedContext struct {
-	// 数据库信息
+	// Database info
 	DatabaseName string    `json:"database_name"`
 	DatabaseType string    `json:"database_type"`
 	Version      string    `json:"version,omitempty"`
 	CollectedAt  time.Time `json:"collected_at"`
 
-	// Schema 关系图
+	// Schema diagram
 	SchemaDiagram *SchemaDiagram `json:"schema_diagram,omitempty"`
 
-	// Metadata（干净的数据库元数据）
+	// Metadata (clean DB metadata)
 	Tables      map[string]*TableMetadata `json:"tables"`
 	TotalTables int                       `json:"total_tables"`
 	TotalRows   int64                     `json:"total_rows"`
 
-	// JOIN 路径分析（新增）
+	// JOIN path analysis
 	JoinPaths map[string]*JoinPath `json:"join_paths,omitempty"`
 
-	// 字段语义信息（新增）
+	// Field semantic info
 	FieldSemantics map[string]*FieldSemantic `json:"field_semantics,omitempty"`
 
-	// 任务注册表（不保存到JSON）
+	// Task registry (not saved to JSON)
 	tasks map[string]*TaskInfo `json:"-"`
 
-	// 临时数据（不保存到JSON）
+	// Temp data (not saved to JSON)
 	tempData map[string]interface{} `json:"-"`
 
-	// 并发控制
+	// Concurrency control
 	mu sync.RWMutex `json:"-"`
 
 	// Quiet suppresses verbose log output (used by gen_all_dev multi-progress mode)
 	Quiet bool `json:"-"`
 }
 
-// BusinessNote Rich Context 条目（包含内容和过期时间）
+// BusinessNote Rich Context entry (content + expiry)
 type BusinessNote struct {
 	Content   string `json:"content"`
 	ExpiresAt string `json:"expires_at"`
 }
 
-// RichContextValue 支持两种格式的 Rich Context 值
-// 可以是简单字符串或 BusinessNote 结构
+// RichContextValue supports two Rich Context value formats
+// Can be plain string or BusinessNote struct
 type RichContextValue struct {
 	BusinessNote
 }
 
-// UnmarshalJSON 自定义 JSON 解析，支持字符串和对象两种格式
+// UnmarshalJSON custom JSON parsing, supports string and object
 func (r *RichContextValue) UnmarshalJSON(data []byte) error {
-	// 尝试解析为字符串
+	// Try parsing as string
 	var str string
 	if err := json.Unmarshal(data, &str); err == nil {
 		r.Content = str
 		return nil
 	}
 
-	// 尝试解析为 BusinessNote 对象
+	// Try parsing as BusinessNote object
 	var note BusinessNote
 	if err := json.Unmarshal(data, &note); err != nil {
 		return err
@@ -118,30 +118,30 @@ func (r *RichContextValue) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// TableMetadata 表元数据
+// TableMetadata table metadata
 type TableMetadata struct {
 	Name        string                      `json:"name"`
 	Comment     string                      `json:"comment,omitempty"`
-	Description string                      `json:"description,omitempty"` // 表的业务描述（LLM生成）
+	Description string                      `json:"description,omitempty"` // Table business description (LLM-generated)
 	RowCount    int64                       `json:"row_count"`
-	PrimaryKey  []string                    `json:"primary_key,omitempty"` // 主键列名列表
+	PrimaryKey  []string                    `json:"primary_key,omitempty"` // Primary key column list
 	Columns     []ColumnMetadata            `json:"columns"`
 	Indexes     []IndexMetadata             `json:"indexes"`
-	ForeignKeys []ForeignKeyMetadata        `json:"foreign_keys,omitempty"` // 外键关系
+	ForeignKeys []ForeignKeyMetadata        `json:"foreign_keys,omitempty"` // Foreign key relationships
 	RichContext map[string]RichContextValue `json:"rich_context,omitempty"`
 }
 
-// ColumnMetadata 列元数据
+// ColumnMetadata column metadata
 type ColumnMetadata struct {
 	Name         string `json:"name"`
 	Type         string `json:"type"`
-	Comment      string `json:"comment,omitempty"` // 从DDL提取的列注释
+	Comment      string `json:"comment,omitempty"` // Column comment from DDL
 	Nullable     bool   `json:"nullable"`
 	DefaultValue string `json:"default,omitempty"`
 	IsPrimaryKey bool   `json:"is_primary_key,omitempty"`
 }
 
-// IndexMetadata 索引元数据
+// IndexMetadata index metadata
 type IndexMetadata struct {
 	Name      string   `json:"name"`
 	Columns   []string `json:"columns"`
@@ -149,32 +149,32 @@ type IndexMetadata struct {
 	IsPrimary bool     `json:"is_primary,omitempty"`
 }
 
-// ForeignKeyMetadata 外键元数据
+// ForeignKeyMetadata foreign key metadata
 type ForeignKeyMetadata struct {
-	ColumnName       string `json:"column_name"`       // 本表的列名
-	ReferencedTable  string `json:"referenced_table"`  // 引用的表名
-	ReferencedColumn string `json:"referenced_column"` // 引用的列名
+	ColumnName       string `json:"column_name"`       // Local column name
+	ReferencedTable  string `json:"referenced_table"`  // Referenced table name
+	ReferencedColumn string `json:"referenced_column"` // Referenced column name
 }
 
-// JoinPath JOIN 路径信息
+// JoinPath JOIN path info
 type JoinPath struct {
-	FromTable   string   `json:"from_table"`   // 起始表
-	ToTable     string   `json:"to_table"`     // 目标表
-	Path        []string `json:"path"`         // 完整路径（包含中间表）
-	JoinClauses []string `json:"join_clauses"` // JOIN 子句列表
-	Description string   `json:"description"`  // 路径描述
+	FromTable   string   `json:"from_table"`   // Source table
+	ToTable     string   `json:"to_table"`     // Target table
+	Path        []string `json:"path"`         // Full path (including intermediate tables)
+	JoinClauses []string `json:"join_clauses"` // JOIN clause list
+	Description string   `json:"description"`  // Path description
 }
 
-// FieldSemantic 字段语义信息
+// FieldSemantic field semantic info
 type FieldSemantic struct {
-	TableName   string `json:"table_name"`           // 表名
-	ColumnName  string `json:"column_name"`          // 列名
-	StorageType string `json:"storage_type"`         // 存储类型：foreign_key, name, id, etc.
-	References  string `json:"references,omitempty"` // 引用的表.列
-	Note        string `json:"note"`                 // 语义说明
+	TableName   string `json:"table_name"`           // Table name
+	ColumnName  string `json:"column_name"`          // Column name
+	StorageType string `json:"storage_type"`         // Storage type: foreign_key, name, id, etc.
+	References  string `json:"references,omitempty"` // Referenced table.column
+	Note        string `json:"note"`                 // Semantic note
 }
 
-// NewSharedContext 创建共享上下文
+// NewSharedContext creates shared context
 func NewSharedContext(dbName, dbType string) *SharedContext {
 	return &SharedContext{
 		DatabaseName: dbName,
@@ -186,7 +186,7 @@ func NewSharedContext(dbName, dbType string) *SharedContext {
 	}
 }
 
-// LoadSchemaFromFile 从 schema.sql 文件加载表结构
+// LoadSchemaFromFile loads table structure from schema.sql
 func (c *SharedContext) LoadSchemaFromFile(schemaPath string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -197,26 +197,26 @@ func (c *SharedContext) LoadSchemaFromFile(schemaPath string) error {
 		return fmt.Errorf("failed to parse schema file: %w", err)
 	}
 
-	// 转换为 TableMetadata
+	// Convert to TableMetadata
 	for tableName, parsedTable := range parsedTables {
 		table := &TableMetadata{
 			Name:        tableName,
-			PrimaryKey:  parsedTable.PrimaryKeys, // 添加主键列表
+			PrimaryKey:  parsedTable.PrimaryKeys, // Add primary key list
 			Columns:     []ColumnMetadata{},
 			Indexes:     []IndexMetadata{},
 			ForeignKeys: []ForeignKeyMetadata{},
 			RichContext: make(map[string]RichContextValue),
 		}
 
-		// 转换列信息
+		// Convert column info
 		for colName, colType := range parsedTable.Columns {
 			col := ColumnMetadata{
 				Name:     colName,
 				Type:     colType,
-				Nullable: true, // 默认可空，SQLite 特性
+				Nullable: true, // Default nullable, SQLite characteristic
 			}
 
-			// 检查是否是主键
+			// Check if primary key
 			for _, pk := range parsedTable.PrimaryKeys {
 				if pk == colName {
 					col.IsPrimaryKey = true
@@ -227,7 +227,7 @@ func (c *SharedContext) LoadSchemaFromFile(schemaPath string) error {
 			table.Columns = append(table.Columns, col)
 		}
 
-		// 转换外键信息
+		// Convert foreign key info
 		for _, fk := range parsedTable.ForeignKeys {
 			table.ForeignKeys = append(table.ForeignKeys, ForeignKeyMetadata{
 				ColumnName:       fk.ColumnName,
@@ -236,9 +236,9 @@ func (c *SharedContext) LoadSchemaFromFile(schemaPath string) error {
 			})
 		}
 
-		// 如果表已存在（从数据库查询获得），合并信息
+		// If table exists (from DB query), merge info
 		if existingTable, exists := c.Tables[tableName]; exists {
-			// 保留 RowCount 和 RichContext
+			// Keep RowCount and RichContext
 			table.RowCount = existingTable.RowCount
 			table.Description = existingTable.Description
 			table.RichContext = existingTable.RichContext
@@ -253,7 +253,7 @@ func (c *SharedContext) LoadSchemaFromFile(schemaPath string) error {
 	return nil
 }
 
-// RegisterTask 注册任务
+// RegisterTask registers task
 func (c *SharedContext) RegisterTask(taskID, agentID, description string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -275,7 +275,7 @@ func (c *SharedContext) RegisterTask(taskID, agentID, description string) error 
 	return nil
 }
 
-// StartTask 标记任务开始
+// StartTask marks task started
 func (c *SharedContext) StartTask(taskID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -298,7 +298,7 @@ func (c *SharedContext) StartTask(taskID string) error {
 	return nil
 }
 
-// CompleteTask 标记任务完成
+// CompleteTask marks task completed
 func (c *SharedContext) CompleteTask(taskID string, result map[string]interface{}) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -319,7 +319,7 @@ func (c *SharedContext) CompleteTask(taskID string, result map[string]interface{
 	return nil
 }
 
-// FailTask 标记任务失败
+// FailTask marks task failed
 func (c *SharedContext) FailTask(taskID string, err error) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -339,15 +339,15 @@ func (c *SharedContext) FailTask(taskID string, err error) error {
 	return nil
 }
 
-// SetData 设置临时数据
+// SetData sets temp data
 func (c *SharedContext) SetData(key string, value interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.tempData[key] = value
 }
 
-// SetTableRichContext 设置表的Rich Context
-// key由LLM自主决定，例如："status_enum_meaning", "business_rules"等
+// SetTableRichContext sets table Rich Context
+// key determined by LLM, e.g.:"status_enum_meaning", "business_rules" etc.
 func (c *SharedContext) SetTableRichContext(tableName, key, content, expiresAt string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -378,7 +378,7 @@ func (c *SharedContext) SetTableRichContext(tableName, key, content, expiresAt s
 	return nil
 }
 
-// SetTableDescription 设置表的业务描述
+// SetTableDescription sets table business description
 func (c *SharedContext) SetTableDescription(tableName, description string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -400,7 +400,7 @@ func (c *SharedContext) SetTableDescription(tableName, description string) error
 	return nil
 }
 
-// GetData 获取数据
+// GetData gets data
 func (c *SharedContext) GetData(key string) (interface{}, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -408,12 +408,12 @@ func (c *SharedContext) GetData(key string) (interface{}, bool) {
 	return val, ok
 }
 
-// GetAllData 获取所有数据（只读副本）
+// GetAllData gets all data (read-only copy)
 func (c *SharedContext) GetAllData() map[string]interface{} {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	// 返回副本
+	// Return copy
 	copy := make(map[string]interface{})
 	for k, v := range c.tempData {
 		copy[k] = v
@@ -421,7 +421,7 @@ func (c *SharedContext) GetAllData() map[string]interface{} {
 	return copy
 }
 
-// GetTaskStatus 获取任务状态
+// GetTaskStatus gets task status
 func (c *SharedContext) GetTaskStatus(taskID string) (TaskStatus, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -434,7 +434,7 @@ func (c *SharedContext) GetTaskStatus(taskID string) (TaskStatus, error) {
 	return task.Status, nil
 }
 
-// GetAllTasks 获取所有任务
+// GetAllTasks gets all tasks
 func (c *SharedContext) GetAllTasks() []*TaskInfo {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -446,7 +446,7 @@ func (c *SharedContext) GetAllTasks() []*TaskInfo {
 	return tasks
 }
 
-// IsAllTasksCompleted 检查是否所有任务都完成
+// IsAllTasksCompleted checks if all tasks completed
 func (c *SharedContext) IsAllTasksCompleted() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -459,7 +459,7 @@ func (c *SharedContext) IsAllTasksCompleted() bool {
 	return len(c.tasks) > 0
 }
 
-// GetSummary 获取摘要（用于Agent感知）
+// GetSummary gets summary (for agent awareness)
 func (c *SharedContext) GetSummary() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -467,7 +467,7 @@ func (c *SharedContext) GetSummary() string {
 	summary := "=== Shared Context Summary ===\n\n"
 	summary += fmt.Sprintf("Database: %s (%s)\n\n", c.DatabaseName, c.DatabaseType)
 
-	// 任务统计
+	// Task statistics
 	var registered, running, completed, failed int
 	for _, task := range c.tasks {
 		switch task.Status {
@@ -489,7 +489,7 @@ func (c *SharedContext) GetSummary() string {
 	summary += fmt.Sprintf("  Registered: %d\n", registered)
 	summary += fmt.Sprintf("  Failed: %d\n\n", failed)
 
-	// 任务列表
+	// Task list
 	if len(c.tasks) > 0 {
 		summary += "Task List:\n"
 		for _, task := range c.tasks {
@@ -500,7 +500,7 @@ func (c *SharedContext) GetSummary() string {
 		summary += "\n"
 	}
 
-	// 数据摘要
+	// Data summary
 	if len(c.tempData) > 0 {
 		summary += fmt.Sprintf("Data Keys: %d\n", len(c.tempData))
 		for key := range c.tempData {
@@ -511,7 +511,7 @@ func (c *SharedContext) GetSummary() string {
 	return summary
 }
 
-// LoadContextFromFile 从文件加载SharedContext
+// LoadContextFromFile loads SharedContext from file
 func LoadContextFromFile(filepath string) (*SharedContext, error) {
 	data, err := os.ReadFile(filepath)
 	if err != nil {
@@ -526,22 +526,22 @@ func LoadContextFromFile(filepath string) (*SharedContext, error) {
 	return &ctx, nil
 }
 
-// SaveToFile 保存metadata到文件（不包含tasks和tempData）
+// SaveToFile saves metadata to file (excludes tasks and tempData)
 func (c *SharedContext) SaveToFile(filepath string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// 先从tempData构建Tables（如果还没构建）
+	// Build Tables from tempData if not built yet
 	if len(c.Tables) == 0 && len(c.tempData) > 0 {
 		c.buildTablesFromTempData()
 	}
 
-	// 生成 Mermaid ER 图
+	// Generate Mermaid ER diagram
 	if len(c.Tables) > 0 {
 		c.SchemaDiagram = c.GenerateMermaidER()
 	}
 
-	// 只保存干净的metadata
+	// Save clean metadata only
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
@@ -550,15 +550,15 @@ func (c *SharedContext) SaveToFile(filepath string) error {
 	return os.WriteFile(filepath, data, 0644)
 }
 
-// BuildTableMetadata 为单个表构建metadata（Phase 1完成后调用）
+// BuildTableMetadata builds metadata for single table (called after Phase 1)
 func (c *SharedContext) BuildTableMetadata(tableName string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// 检查表是否已存在（从 LoadSchemaFromFile 加载）
+	// Check if table exists (from LoadSchemaFromFile)
 	table, exists := c.Tables[tableName]
 	if !exists {
-		// 如果不存在，创建新表
+		// If not exists, create new table
 		table = &TableMetadata{
 			Name:        tableName,
 			Columns:     []ColumnMetadata{},
@@ -567,9 +567,9 @@ func (c *SharedContext) BuildTableMetadata(tableName string) {
 			RichContext: make(map[string]RichContextValue),
 		}
 	} else {
-		// 如果已存在，保留 ForeignKeys，但重置其他字段
-		// 因为 Worker Agent 会重新查询数据库获取最新信息
-		foreignKeys := table.ForeignKeys // 保留外键
+		// If exists, keep ForeignKeys but reset others
+		// Worker Agent re-queries DB for latest info
+		foreignKeys := table.ForeignKeys // Keep foreign keys
 		table.Columns = []ColumnMetadata{}
 		table.Indexes = []IndexMetadata{}
 		table.ForeignKeys = foreignKeys
@@ -578,7 +578,7 @@ func (c *SharedContext) BuildTableMetadata(tableName string) {
 		}
 	}
 
-	// 解析列信息
+	// Parse column info
 	if columnsData, ok := c.tempData[tableName+"_columns"]; ok {
 		switch cols := columnsData.(type) {
 		case []interface{}:
@@ -596,7 +596,7 @@ func (c *SharedContext) BuildTableMetadata(tableName string) {
 		}
 	}
 
-	// 解析索引信息
+	// Parse index info
 	if indexesData, ok := c.tempData[tableName+"_indexes"]; ok {
 		indexMap := make(map[string]*IndexMetadata)
 		switch idxs := indexesData.(type) {
@@ -654,7 +654,7 @@ func (c *SharedContext) BuildTableMetadata(tableName string) {
 		}
 	}
 
-	// 解析外键信息
+	// Parse FK info
 	if foreignKeysData, ok := c.tempData[tableName+"_foreignkeys"]; ok {
 		switch fks := foreignKeysData.(type) {
 		case []interface{}:
@@ -670,7 +670,7 @@ func (c *SharedContext) BuildTableMetadata(tableName string) {
 		}
 	}
 
-	// 解析行数
+	// Parse row count
 	if rowcountData, ok := c.tempData[tableName+"_rowcount"]; ok {
 		switch rows := rowcountData.(type) {
 		case []interface{}:
@@ -705,9 +705,9 @@ func (c *SharedContext) BuildTableMetadata(tableName string) {
 	}
 }
 
-// buildTablesFromTempData 从临时数据构建Tables结构
+// buildTablesFromTempData builds Tables structure from temp data
 func (c *SharedContext) buildTablesFromTempData() {
-	// 提取 tempData 的 keys 用于调试
+	// Extract tempData keys for debug
 	keys := make([]string, 0, len(c.tempData))
 	for k := range c.tempData {
 		keys = append(keys, k)
@@ -716,7 +716,7 @@ func (c *SharedContext) buildTablesFromTempData() {
 		fmt.Printf("[Context] Building tables from tempData, keys: %v\n", keys)
 	}
 
-	// 提取所有表名
+	// Extract all table names
 	tableNames := make(map[string]bool)
 	for key := range c.tempData {
 		if len(key) > 8 && key[len(key)-8:] == "_columns" {
@@ -735,7 +735,7 @@ func (c *SharedContext) buildTablesFromTempData() {
 		fmt.Printf("[Context] Found tables: %v\n", tableNames)
 	}
 
-	// 为每个表构建metadata
+	// Build metadata for each table
 	for tableName := range tableNames {
 		table := &TableMetadata{
 			Name:        tableName,
@@ -744,9 +744,9 @@ func (c *SharedContext) buildTablesFromTempData() {
 			RichContext: make(map[string]RichContextValue),
 		}
 
-		// 解析列信息
+		// Parse column info
 		if columnsData, ok := c.tempData[tableName+"_columns"]; ok {
-			// 尝试两种类型：[]interface{} 和 []map[string]interface{}
+			// Try two types: []interface{} and []map[string]interface{}
 			switch cols := columnsData.(type) {
 			case []interface{}:
 				for _, colData := range cols {
@@ -783,7 +783,7 @@ func (c *SharedContext) buildTablesFromTempData() {
 			}
 		}
 
-		// 解析索引信息
+		// Parse index info
 		if indexesData, ok := c.tempData[tableName+"_indexes"]; ok {
 			indexMap := make(map[string]*IndexMetadata)
 			switch idxs := indexesData.(type) {
@@ -841,7 +841,7 @@ func (c *SharedContext) buildTablesFromTempData() {
 			}
 		}
 
-		// 解析行数
+		// Parse row count
 		if rowcountData, ok := c.tempData[tableName+"_rowcount"]; ok {
 			switch rows := rowcountData.(type) {
 			case []interface{}:
@@ -876,16 +876,16 @@ func (c *SharedContext) buildTablesFromTempData() {
 	c.TotalTables = len(c.Tables)
 }
 
-// parseColumnMetadata 解析列元数据（支持不同数据库格式）
+// parseColumnMetadata parses column metadata (supports different DB formats)
 func parseColumnMetadata(colMap map[string]interface{}, dbType string) ColumnMetadata {
 	col := ColumnMetadata{}
 
-	// 标准化数据库类型为小写
+	// Normalize DB type to lowercase
 	normalizedType := strings.ToLower(dbType)
 
 	switch normalizedType {
 	case "sqlite":
-		// SQLite PRAGMA table_info() 格式: cid|name|type|notnull|dflt_value|pk
+		// SQLite PRAGMA table_info() format: cid|name|type|notnull|dflt_value|pk
 		col.Name = getString(colMap, "name")
 		col.Type = getString(colMap, "type")
 		col.Nullable = getInt(colMap, "notnull") == 0 // SQLite: 0=nullable, 1=not null
@@ -897,7 +897,7 @@ func parseColumnMetadata(colMap map[string]interface{}, dbType string) ColumnMet
 		col.IsPrimaryKey = getInt(colMap, "pk") > 0
 
 	case "postgresql":
-		// PostgreSQL information_schema.columns 格式
+		// PostgreSQL information_schema.columns format
 		col.Name = getString(colMap, "column_name")
 		col.Type = getString(colMap, "data_type")
 		col.Nullable = getString(colMap, "is_nullable") == "YES"
@@ -907,7 +907,7 @@ func parseColumnMetadata(colMap map[string]interface{}, dbType string) ColumnMet
 		}
 
 	case "mysql":
-		// MySQL DESCRIBE 格式: Field|Type|Null|Key|Default|Extra|Comment
+		// MySQL DESCRIBE format: Field|Type|Null|Key|Default|Extra|Comment
 		col.Name = getString(colMap, "Field")
 		col.Type = getString(colMap, "Type")
 		col.Comment = getString(colMap, "Comment")
@@ -922,7 +922,7 @@ func parseColumnMetadata(colMap map[string]interface{}, dbType string) ColumnMet
 		}
 
 	default:
-		// 未知数据库类型，尝试通用解析
+		// Unknown DB type, try generic parsing
 		col.Name = getString(colMap, "name")
 		if col.Name == "" {
 			col.Name = getString(colMap, "Field")
@@ -936,7 +936,7 @@ func parseColumnMetadata(colMap map[string]interface{}, dbType string) ColumnMet
 	return col
 }
 
-// parseForeignKeyMetadata 解析外键元数据（支持不同数据库格式）
+// parseForeignKeyMetadata parses FK metadata (supports different DB formats)
 func parseForeignKeyMetadata(fkMap map[string]interface{}, dbType string) ForeignKeyMetadata {
 	fk := ForeignKeyMetadata{}
 
@@ -944,21 +944,21 @@ func parseForeignKeyMetadata(fkMap map[string]interface{}, dbType string) Foreig
 
 	switch normalizedType {
 	case "sqlite":
-		// PRAGMA foreign_key_list() 格式: from, table, to
+		// PRAGMA foreign_key_list() format: from, table, to
 		fk.ColumnName = getString(fkMap, "from")
 		fk.ReferencedTable = getString(fkMap, "table")
 		fk.ReferencedColumn = getString(fkMap, "to")
 
 	case "postgresql":
-		// information_schema query 格式
+		// information_schema query format
 		fk.ColumnName = getString(fkMap, "column_name")
 		fk.ReferencedTable = getString(fkMap, "foreign_table_name")
 		fk.ReferencedColumn = getString(fkMap, "foreign_column_name")
 
 	case "mysql":
-		// SHOW CREATE TABLE 格式需要解析字符串
+		// SHOW CREATE TABLE format requires string parsing
 		if createStmt, ok := fkMap["Create Table"].(string); ok {
-			// 这是一个简化的解析器，可能需要更强的正则表达式
+			// This is a simplified parser, may need stronger regex
 			lines := strings.Split(createStmt, "\n")
 			for _, line := range lines {
 				line = strings.TrimSpace(line)
@@ -969,8 +969,8 @@ func parseForeignKeyMetadata(fkMap map[string]interface{}, dbType string) Foreig
 						fk.ColumnName = parts[3]
 						fk.ReferencedTable = parts[5]
 						fk.ReferencedColumn = parts[7]
-						// 注意：一个表中可能有多个外键，这里只返回第一个找到的。正确的实现应该在外面循环。
-						// 但由于我们的agent每次只处理一个表，这个简化是可接受的。
+						// Note: table may have multiple FKs, this returns first found.
+						// Since our agent processes one table at a time, this simplification is acceptable.
 					}
 				}
 			}
@@ -980,7 +980,7 @@ func parseForeignKeyMetadata(fkMap map[string]interface{}, dbType string) Foreig
 	return fk
 }
 
-// getStatusSymbol 获取任务状态符号
+// getStatusSymbol gets task status symbol
 func getStatusSymbol(status TaskStatus) string {
 	switch status {
 	case TaskRegistered:

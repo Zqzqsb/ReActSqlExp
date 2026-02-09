@@ -7,17 +7,17 @@ import (
 	"strings"
 )
 
-// SchemaParser 解析 schema.sql 文件
+// SchemaParser parses schema.sql files
 type SchemaParser struct {
 	filePath string
 }
 
-// NewSchemaParser 创建解析器
+// NewSchemaParser creates parser
 func NewSchemaParser(filePath string) *SchemaParser {
 	return &SchemaParser{filePath: filePath}
 }
 
-// ParsedTable 解析后的表结构
+// ParsedTable parsed table structure
 type ParsedTable struct {
 	Name        string
 	Columns     map[string]string // column_name -> type
@@ -25,14 +25,14 @@ type ParsedTable struct {
 	ForeignKeys []ParsedForeignKey
 }
 
-// ParsedForeignKey 解析后的外键
+// ParsedForeignKey parsed foreign key
 type ParsedForeignKey struct {
 	ColumnName       string
 	ReferencedTable  string
 	ReferencedColumn string
 }
 
-// Parse 解析 schema.sql 文件
+// Parse parses schema.sql file
 func (p *SchemaParser) Parse() (map[string]*ParsedTable, error) {
 	content, err := os.ReadFile(p.filePath)
 	if err != nil {
@@ -41,14 +41,14 @@ func (p *SchemaParser) Parse() (map[string]*ParsedTable, error) {
 
 	sql := string(content)
 
-	// 移除注释
+	// Remove comments
 	sql = removeComments(sql)
 
-	// 提取所有 CREATE TABLE 语句
+	// Extract all CREATE TABLE statements
 	tables := make(map[string]*ParsedTable)
 
-	// 正则匹配 CREATE TABLE 语句
-	// 支持带引号和不带引号的表名
+	// Regex match CREATE TABLE
+	// Supports quoted and unquoted table names
 	createTableRegex := regexp.MustCompile(`(?i)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["'\x60]?(\w+)["'\x60]?\s*\(((?:[^()]|\([^)]*\))*)\)`)
 
 	matches := createTableRegex.FindAllStringSubmatch(sql, -1)
@@ -58,17 +58,17 @@ func (p *SchemaParser) Parse() (map[string]*ParsedTable, error) {
 			continue
 		}
 
-		tableName := match[1] // 保留原始大小写
+		tableName := match[1] // Preserve original case
 		tableBody := match[2]
 
 		table := &ParsedTable{
-			Name:        strings.ToLower(tableName), // 表名统一小写用于查找
+			Name:        strings.ToLower(tableName), // Table name lowercase for lookup
 			Columns:     make(map[string]string),
 			PrimaryKeys: []string{},
 			ForeignKeys: []ParsedForeignKey{},
 		}
 
-		// 解析表体
+		// Parse table body
 		parseTableBody(table, tableBody)
 
 		tables[tableName] = table
@@ -77,22 +77,22 @@ func (p *SchemaParser) Parse() (map[string]*ParsedTable, error) {
 	return tables, nil
 }
 
-// removeComments 移除 SQL 注释
+// removeComments removes SQL comments
 func removeComments(sql string) string {
-	// 移除单行注释 --
+	// Remove single-line comments --
 	lineCommentRegex := regexp.MustCompile(`--[^\n]*`)
 	sql = lineCommentRegex.ReplaceAllString(sql, "")
 
-	// 移除多行注释 /* */
+	// Remove multi-line comments /* */
 	blockCommentRegex := regexp.MustCompile(`/\*[\s\S]*?\*/`)
 	sql = blockCommentRegex.ReplaceAllString(sql, "")
 
 	return sql
 }
 
-// parseTableBody 解析表定义体
+// parseTableBody parses table definition body
 func parseTableBody(table *ParsedTable, body string) {
-	// 分割成各个定义项（列定义、约束等）
+	// Split into definition items (columns, constraints)
 	items := splitTableItems(body)
 
 	for _, item := range items {
@@ -103,24 +103,24 @@ func parseTableBody(table *ParsedTable, body string) {
 
 		itemLower := strings.ToLower(item)
 
-		// 检查是否是主键约束
+		// Check if primary key constraint
 		if strings.HasPrefix(itemLower, "primary key") {
 			parsePrimaryKey(table, item)
 			continue
 		}
 
-		// 检查是否是外键约束
+		// Check if foreign key constraint
 		if strings.HasPrefix(itemLower, "foreign key") {
 			parseForeignKey(table, item)
 			continue
 		}
 
-		// 否则是列定义
+		// Otherwise column definition
 		parseColumnDefinition(table, item)
 	}
 }
 
-// splitTableItems 分割表定义项（处理括号嵌套）
+// splitTableItems splits table items (handles nested parens)
 func splitTableItems(body string) []string {
 	var items []string
 	var current strings.Builder
@@ -153,28 +153,28 @@ func splitTableItems(body string) []string {
 	return items
 }
 
-// parseColumnDefinition 解析列定义
+// parseColumnDefinition parses column definition
 func parseColumnDefinition(table *ParsedTable, def string) {
-	// 移除引号
+	// Remove quotes
 	def = strings.Trim(def, `"'\x60`)
 
-	// 分割列名和类型
+	// Split column name and type
 	parts := strings.Fields(def)
 	if len(parts) < 2 {
 		return
 	}
 
-	columnName := strings.Trim(parts[0], `"'\x60`) // 保留原始大小写
+	columnName := strings.Trim(parts[0], `"'\x60`) // Preserve original case
 	columnType := strings.ToUpper(parts[1])
 
-	// 检查是否有 primary key 关键字（列级约束）
+	// Check for primary key keyword (column-level)
 	defLower := strings.ToLower(def)
 	if strings.Contains(defLower, "primary key") {
 		table.PrimaryKeys = append(table.PrimaryKeys, columnName)
 	}
 
-	// 检查是否有外键（列级约束）
-	// 格式: REFERENCES table(column)
+	// Check for FK (column-level)
+	// Format: REFERENCES table(column)
 	if strings.Contains(defLower, "references") {
 		parseForeignKeyInline(table, columnName, def)
 	}
@@ -182,10 +182,10 @@ func parseColumnDefinition(table *ParsedTable, def string) {
 	table.Columns[columnName] = columnType
 }
 
-// parsePrimaryKey 解析主键约束
+// parsePrimaryKey parses primary key constraint
 func parsePrimaryKey(table *ParsedTable, constraint string) {
-	// 提取括号内的列名
-	// 格式: primary key ("col1", "col2")
+	// Extract column names from parens
+	// Format: primary key ("col1", "col2")
 	re := regexp.MustCompile(`\((.*?)\)`)
 	matches := re.FindStringSubmatch(constraint)
 	if len(matches) < 2 {
@@ -198,18 +198,18 @@ func parsePrimaryKey(table *ParsedTable, constraint string) {
 	for _, col := range columns {
 		col = strings.TrimSpace(col)
 		col = strings.Trim(col, `"'\x60`)
-		// 保留原始大小写
+		// Preserve original case
 		if col != "" {
 			table.PrimaryKeys = append(table.PrimaryKeys, col)
 		}
 	}
 }
 
-// parseForeignKey 解析外键约束（表级）
+// parseForeignKey parses FK constraint (table-level)
 func parseForeignKey(table *ParsedTable, constraint string) {
-	// 格式: foreign key("col") references `table`("ref_col")
+	// Format: foreign key("col") references `table`("ref_col")
 
-	// 提取本表列名（保留大小写）
+	// Extract local column (preserve case)
 	colRe := regexp.MustCompile(`(?i)foreign\s+key\s*\(\s*["'\x60]?(\w+)["'\x60]?\s*\)`)
 	colMatches := colRe.FindStringSubmatch(constraint)
 	if len(colMatches) < 2 {
@@ -217,7 +217,7 @@ func parseForeignKey(table *ParsedTable, constraint string) {
 	}
 	columnName := colMatches[1]
 
-	// 提取引用的表和列（保留大小写）
+	// Extract referenced table and column (preserve case)
 	refRe := regexp.MustCompile(`(?i)references\s+["'\x60]?(\w+)["'\x60]?\s*\(\s*["'\x60]?(\w+)["'\x60]?\s*\)`)
 	refMatches := refRe.FindStringSubmatch(constraint)
 	if len(refMatches) < 3 {
@@ -226,14 +226,14 @@ func parseForeignKey(table *ParsedTable, constraint string) {
 
 	table.ForeignKeys = append(table.ForeignKeys, ParsedForeignKey{
 		ColumnName:       columnName,
-		ReferencedTable:  strings.ToLower(refMatches[1]), // 表名统一小写
-		ReferencedColumn: refMatches[2],                  // 列名保留原始大小写
+		ReferencedTable:  strings.ToLower(refMatches[1]), // Table name lowercase
+		ReferencedColumn: refMatches[2],                  // Column name preserves original case
 	})
 }
 
-// parseForeignKeyInline 解析内联外键（列级）
+// parseForeignKeyInline parses inline FK (column-level)
 func parseForeignKeyInline(table *ParsedTable, columnName, def string) {
-	// 格式: REFERENCES table(column)
+	// Format: REFERENCES table(column)
 	refRe := regexp.MustCompile(`(?i)references\s+["'\x60]?(\w+)["'\x60]?\s*\(\s*["'\x60]?(\w+)["'\x60]?\s*\)`)
 	refMatches := refRe.FindStringSubmatch(def)
 	if len(refMatches) < 3 {
@@ -242,7 +242,7 @@ func parseForeignKeyInline(table *ParsedTable, columnName, def string) {
 
 	table.ForeignKeys = append(table.ForeignKeys, ParsedForeignKey{
 		ColumnName:       columnName,
-		ReferencedTable:  strings.ToLower(refMatches[1]), // 表名统一小写
-		ReferencedColumn: refMatches[2],                  // 列名保留原始大小写
+		ReferencedTable:  strings.ToLower(refMatches[1]), // Table name lowercase
+		ReferencedColumn: refMatches[2],                  // Column name preserves original case
 	})
 }

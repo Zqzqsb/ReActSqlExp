@@ -42,7 +42,7 @@ type CollectedStep struct {
 	Step        int         `json:"step"`
 	Thought     string      `json:"thought"`
 	Action      string      `json:"action"`
-	ActionInput interface{} `json:"action_input"` // 改为 interface{} 以支持多种类型
+	ActionInput interface{} `json:"action_input"` // Changed to interface{} for multiple types
 	Observation string      `json:"observation"`
 	Phase       string      `json:"phase,omitempty"` // "schema_linking" or "sql_generation"
 	Timestamp   time.Time   `json:"timestamp"`

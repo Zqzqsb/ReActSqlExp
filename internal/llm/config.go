@@ -8,14 +8,14 @@ import (
 	"github.com/tmc/langchaingo/llms/openai"
 )
 
-// ModelConfig LLM 模型配置
+// ModelConfig LLM model config
 type ModelConfig struct {
 	ModelName string `json:"model_name"`
 	Token     string `json:"token"`
 	BaseURL   string `json:"base_url"`
 }
 
-// ConfigFile 配置文件结构
+// ConfigFile config file structure
 type ConfigFile struct {
 	DeepSeekV3  ModelConfig `json:"deepseek_v3"`
 	DeepSeekV32 ModelConfig `json:"deepseek_v3_2"`
@@ -25,12 +25,12 @@ type ConfigFile struct {
 }
 
 var (
-	// 全局配置（从文件加载）
+	// Global config (loaded from file)
 	config *ConfigFile
 )
 
 func init() {
-	// 尝试加载配置文件
+	// Try loading config file
 	var err error
 	config, err = loadConfig()
 	if err != nil {
@@ -38,9 +38,9 @@ func init() {
 	}
 }
 
-// loadConfig 加载配置文件
+// loadConfig loads config file
 func loadConfig() (*ConfigFile, error) {
-	// 尝试多个可能的配置文件路径
+	// Try multiple possible config paths
 	paths := []string{
 		"llm_config.json",
 		"../llm_config.json",
@@ -64,11 +64,11 @@ func loadConfig() (*ConfigFile, error) {
 		return &cfg, nil
 	}
 
-	// 如果找不到配置文件，返回错误
+	// Return error if config not found
 	return nil, lastErr
 }
 
-// GetConfig 获取当前配置
+// GetConfig gets current config
 func GetConfig() *ConfigFile {
 	if config == nil {
 		panic("LLM config not initialized. Please ensure llm_config.json exists.")
@@ -76,7 +76,7 @@ func GetConfig() *ConfigFile {
 	return config
 }
 
-// GetModel 根据标志获取模型配置
+// GetModel gets model config by flag
 func GetModel(useV32 bool) ModelConfig {
 	cfg := GetConfig()
 	if useV32 {
@@ -85,7 +85,7 @@ func GetModel(useV32 bool) ModelConfig {
 	return cfg.DeepSeekV3
 }
 
-// GetModelName 获取模型显示名称
+// GetModelName gets model display name
 func GetModelName(useV32 bool) string {
 	if useV32 {
 		return "DeepSeek-V3.2"
@@ -93,7 +93,7 @@ func GetModelName(useV32 bool) string {
 	return "DeepSeek-V3"
 }
 
-// CreateLLM 创建 LLM 实例
+// CreateLLM creates LLM instance
 func CreateLLM(config ModelConfig) (llms.Model, error) {
 	return openai.New(
 		openai.WithModel(config.ModelName),
@@ -102,13 +102,13 @@ func CreateLLM(config ModelConfig) (llms.Model, error) {
 	)
 }
 
-// CreateLLMWithFlag 根据标志创建 LLM 实例
+// CreateLLMWithFlag creates LLM by flag
 func CreateLLMWithFlag(useV32 bool) (llms.Model, error) {
 	modelConfig := GetModel(useV32)
 	return CreateLLM(modelConfig)
 }
 
-// ModelType 模型类型
+// ModelType model type enum
 type ModelType string
 
 const (
@@ -119,7 +119,7 @@ const (
 	ModelAliDeepSeekV32 ModelType = "ali-deepseek-v3.2"
 )
 
-// GetModelByType 根据模型类型获取配置
+// GetModelByType gets config by model type
 func GetModelByType(modelType ModelType) ModelConfig {
 	cfg := GetConfig()
 	switch modelType {
@@ -138,7 +138,7 @@ func GetModelByType(modelType ModelType) ModelConfig {
 	}
 }
 
-// GetModelDisplayName 获取模型显示名称
+// GetModelDisplayName gets model display name
 func GetModelDisplayName(modelType ModelType) string {
 	switch modelType {
 	case ModelDeepSeekV3:
@@ -156,7 +156,7 @@ func GetModelDisplayName(modelType ModelType) string {
 	}
 }
 
-// CreateLLMByType 根据模型类型创建 LLM 实例
+// CreateLLMByType creates LLM by model type
 func CreateLLMByType(modelType ModelType) (llms.Model, error) {
 	modelConfig := GetModelByType(modelType)
 	return CreateLLM(modelConfig)

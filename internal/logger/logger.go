@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Logger 进度日志记录器
+// Logger progress logger
 type Logger struct {
 	mu             sync.Mutex
 	totalTasks     int
@@ -16,7 +16,7 @@ type Logger struct {
 	taskDetails    map[string]*TaskProgress
 }
 
-// TaskProgress 任务进度
+// TaskProgress task progress
 type TaskProgress struct {
 	Name      string
 	Status    string // "pending", "running", "completed", "failed"
@@ -25,7 +25,7 @@ type TaskProgress struct {
 	Error     string
 }
 
-// NewLogger 创建新的日志记录器
+// NewLogger creates new logger
 func NewLogger(totalTasks int) *Logger {
 	return &Logger{
 		totalTasks:  totalTasks,
@@ -34,7 +34,7 @@ func NewLogger(totalTasks int) *Logger {
 	}
 }
 
-// SetPhase 设置当前阶段
+// SetPhase sets current phase
 func (l *Logger) SetPhase(phase string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -44,7 +44,7 @@ func (l *Logger) SetPhase(phase string) {
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 }
 
-// StartTask 开始任务
+// StartTask starts task
 func (l *Logger) StartTask(taskName string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -58,7 +58,7 @@ func (l *Logger) StartTask(taskName string) {
 	fmt.Printf("[%s] 🔄 Started\n", taskName)
 }
 
-// CompleteTask 完成任务
+// CompleteTask completes task
 func (l *Logger) CompleteTask(taskName string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -74,7 +74,7 @@ func (l *Logger) CompleteTask(taskName string) {
 	}
 }
 
-// FailTask 任务失败
+// FailTask fails task
 func (l *Logger) FailTask(taskName string, err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -90,7 +90,7 @@ func (l *Logger) FailTask(taskName string, err error) {
 	}
 }
 
-// printProgress 打印进度（内部使用，已加锁）
+// printProgress prints progress (internal, locked)
 func (l *Logger) printProgress() {
 	if l.totalTasks == 0 {
 		return
@@ -99,7 +99,7 @@ func (l *Logger) printProgress() {
 	percentage := float64(l.completedTasks) / float64(l.totalTasks) * 100
 	elapsed := time.Since(l.startTime)
 
-	// 估算剩余时间
+	// Estimate remaining time
 	var eta time.Duration
 	if l.completedTasks > 0 {
 		avgTime := elapsed / time.Duration(l.completedTasks)
@@ -112,7 +112,7 @@ func (l *Logger) printProgress() {
 		formatDuration(elapsed), formatDuration(eta))
 }
 
-// PrintSummary 打印最终摘要
+// PrintSummary prints final summary
 func (l *Logger) PrintSummary() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -153,7 +153,7 @@ func (l *Logger) PrintSummary() {
 	fmt.Printf("\n")
 }
 
-// formatDuration 格式化时间
+// formatDuration formats duration
 func formatDuration(d time.Duration) string {
 	if d == 0 {
 		return "N/A"
@@ -174,17 +174,17 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh%dm", hours, minutes)
 }
 
-// Info 打印信息
+// Info prints info
 func (l *Logger) Info(format string, args ...interface{}) {
 	fmt.Printf("ℹ️  "+format+"\n", args...)
 }
 
-// Warn 打印警告
+// Warn prints warning
 func (l *Logger) Warn(format string, args ...interface{}) {
 	fmt.Printf("⚠️  "+format+"\n", args...)
 }
 
-// Error 打印错误
+// Error prints error
 func (l *Logger) Error(format string, args ...interface{}) {
 	fmt.Printf("❌ "+format+"\n", args...)
 }

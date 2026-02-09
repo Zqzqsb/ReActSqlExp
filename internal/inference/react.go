@@ -12,7 +12,7 @@ import (
 	"github.com/tmc/langchaingo/tools"
 )
 
-// oneShotGeneration One-shot SQL 生成
+// oneShotGeneration one-shot SQL generation
 func (p *Pipeline) oneShotGeneration(ctx context.Context, query string, contextPrompt string) (string, error) {
 	prompt := p.buildPrompt(query, contextPrompt, false)
 
@@ -22,7 +22,7 @@ func (p *Pipeline) oneShotGeneration(ctx context.Context, query string, contextP
 	fmt.Println(prompt)
 	fmt.Println()
 
-	// 调用 LLM，带退避重试机制
+	// Call LLM with backoff retry
 	var response string
 	var err error
 	maxRetries := 2
@@ -34,7 +34,7 @@ func (p *Pipeline) oneShotGeneration(ctx context.Context, query string, contextP
 			break
 		}
 
-		// 如果还有重试机会，等待后重试
+		// If retries left, wait and retry
 		if attempt < maxRetries {
 			delay := backoffDelays[attempt]
 			fmt.Printf("⚠️  SQL Generation failed (attempt %d/%d): %v\n", attempt+1, maxRetries+1, err)
@@ -47,7 +47,7 @@ func (p *Pipeline) oneShotGeneration(ctx context.Context, query string, contextP
 		return "", fmt.Errorf("LLM call failed after %d attempts: %w", maxRetries+1, err)
 	}
 
-	// 记录 tokens
+	// Record tokens
 	p.promptTexts = append(p.promptTexts, prompt)
 	p.responseTexts = append(p.responseTexts, response)
 
@@ -57,7 +57,7 @@ func (p *Pipeline) oneShotGeneration(ctx context.Context, query string, contextP
 	fmt.Println(response)
 	fmt.Println()
 
-	// 提取 SQL
+	// Extract SQL
 	sql := p.extractSQL(response)
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -69,9 +69,9 @@ func (p *Pipeline) oneShotGeneration(ctx context.Context, query string, contextP
 	return sql, nil
 }
 
-// reactLoop ReAct 循环
+// reactLoop ReAct loop
 func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt string, result *Result) (string, error) {
-	// 创建工具
+	// Create tools
 	sqlTool := &SQLTool{
 		adapter:   p.adapter,
 		useDryRun: p.config.UseDryRun,
@@ -82,10 +82,10 @@ func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt st
 		resultFieldsDescription: p.config.ResultFieldsDescription,
 	}
 
-	// 创建 verify_sql 工具
+	// Create verify_sql tool
 	verifySQLTool := NewVerifySQLTool(p.adapter, p.config.DBType)
 
-	// 创建 ReAct Agent
+	// Create ReAct Agent
 	var toolsList []tools.Tool
 	toolsList = []tools.Tool{sqlTool, verifySQLTool}
 
@@ -131,10 +131,10 @@ func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt st
 		return "", err
 	}
 
-	// 构建 Prompt - pass claimed iterations to prompt
+	// Build Prompt - pass claimed iterations to prompt
 	prompt := p.buildPrompt(query, contextPrompt, true)
 
-	// 只打印关键信息，不打印完整 prompt（避免重复的 Best Practices 等）
+	// Print key info only, skip full prompt（avoid duplicate Best Practices etc.）
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("🔄 Starting ReAct Loop (Claimed %d, Actual Max %d iterations)\n", claimedMaxIterations, actualMaxIterations)
 	fmt.Printf("Question: %s\n", query)
@@ -162,12 +162,12 @@ func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt st
 		})
 	}
 
-	// 更新统计信息
+	// Update statistics
 	result.LLMCalls += len(collectedSteps) // Use actual iteration count
 	result.SQLExecutions += sqlTool.ExecutionCount
 	result.ClarifyCount = clarifyTool.ClarifyCount
 
-	// 提取最终 SQL
+	// Extract final SQL
 	if output, ok := agentResult["output"].(string); ok {
 		sql := p.extractSQL(output)
 		return sql, nil
@@ -176,13 +176,13 @@ func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt st
 	return "", fmt.Errorf("no SQL generated")
 }
 
-// buildPrompt 构建 Prompt
+// buildPrompt builds prompt
 func (p *Pipeline) buildPrompt(query string, contextPrompt string, isReact bool) string {
 	var sb strings.Builder
 
 	sb.WriteString("You are a SQL expert. Generate SQL to answer the question.\n\n")
 
-	// 数据库类型信息
+	// Database type info
 	if p.config.DBType != "" {
 		sb.WriteString(fmt.Sprintf("**Database Type: %s**\n", p.config.DBType))
 		sb.WriteString(fmt.Sprintf("CRITICAL: Write SQL that strictly follows %s syntax rules.\n", p.config.DBType))
@@ -211,10 +211,10 @@ func (p *Pipeline) buildPrompt(query string, contextPrompt string, isReact bool)
 		sb.WriteString("\n\n")
 	}
 
-	// SQL Best Practices（仅在使用 Rich Context 时添加）
-	// 这些是在 onboarding 阶段分析出的增强提示，不应该在 baseline 中使用
+	// SQL Best Practices (only added with Rich Context)
+	// These are enhanced hints from onboarding, should not be used in baseline
 	if p.config.UseRichContext {
-		// JOIN 路径和字段语义信息（仅在 Rich Context 模式下）
+		// JOIN paths and field semantics (only in Rich Context mode)
 		if p.context != nil {
 			if joinPathsPrompt := p.context.FormatJoinPathsForPrompt(); joinPathsPrompt != "" {
 				sb.WriteString(joinPathsPrompt)
@@ -263,7 +263,7 @@ SQL Best Practices:
 
 	sb.WriteString(fmt.Sprintf("Question: %s\n\n", query))
 
-	// force 模式：强制在 prompt 中给出字段信息
+	// force mode: mandatory field info in prompt
 	if p.config.ClarifyMode == "force" && len(p.config.ResultFields) > 0 {
 		sb.WriteString("⚠️ REQUIRED OUTPUT FIELDS:\n")
 		fieldsStr := strings.Join(p.config.ResultFields, ", ")
@@ -337,7 +337,7 @@ B) Give answer:
 
 `)
 
-		// 在 ReAct 模式下，再次强调字段要求（防止长程注意力丢失）
+		// In ReAct mode, re-emphasize field requirements (prevent long-range attention loss)
 		if p.config.ClarifyMode == "force" && len(p.config.ResultFields) > 0 {
 			sb.WriteString(`
 ⚠️ REMINDER - REQUIRED OUTPUT FIELDS ⚠️
@@ -368,23 +368,23 @@ SELECT ...`)
 	return sb.String()
 }
 
-// extractSQL 从响应中提取 SQL
+// extractSQL extracts SQL from response
 func (p *Pipeline) extractSQL(response string) string {
-	// 尝试提取 Final Answer
+	// Try extracting Final Answer
 	if idx := strings.Index(response, "Final Answer:"); idx >= 0 {
 		response = response[idx+13:]
 	}
 
-	// 清理
+	// Clean up
 	response = strings.TrimSpace(response)
 
-	// 移除 markdown 代码块
+	// Remove markdown code blocks
 	response = strings.TrimPrefix(response, "```sql")
 	response = strings.TrimPrefix(response, "```")
 	response = strings.TrimSuffix(response, "```")
 	response = strings.TrimSpace(response)
 
-	// 如果包含反引号包裹的 SQL，提取它
+	// Extract backtick-wrapped SQL
 	if strings.Contains(response, "`SELECT") || strings.Contains(response, "`select") {
 		start := strings.Index(response, "`")
 		if start >= 0 {
@@ -395,7 +395,7 @@ func (p *Pipeline) extractSQL(response string) string {
 		}
 	}
 
-	// 如果响应包含多行，且第一行是 SELECT，只取第一行
+	// If multi-line response，and first line is SELECT, take first line only
 	lines := strings.Split(response, "\n")
 	if len(lines) > 1 {
 		firstLine := strings.TrimSpace(lines[0])
@@ -404,11 +404,11 @@ func (p *Pipeline) extractSQL(response string) string {
 			strings.HasPrefix(strings.ToUpper(firstLine), "INSERT") ||
 			strings.HasPrefix(strings.ToUpper(firstLine), "UPDATE") ||
 			strings.HasPrefix(strings.ToUpper(firstLine), "DELETE") {
-			// 找到 SQL 语句的结束位置（遇到非 SQL 内容）
+			// Find SQL statement end (non-SQL content)
 			var sqlLines []string
 			for _, line := range lines {
 				trimmed := strings.TrimSpace(line)
-				// 如果遇到解释性文本（如 "This query"），停止
+				// If explanatory text encountered (e.g. "This query"), stop
 				if strings.HasPrefix(trimmed, "This ") ||
 					strings.HasPrefix(trimmed, "The ") ||
 					strings.HasPrefix(trimmed, "Since ") ||
@@ -424,7 +424,7 @@ func (p *Pipeline) extractSQL(response string) string {
 	return strings.TrimSpace(response)
 }
 
-// SQLTool SQL 执行工具
+// SQLTool SQL execution tool
 type SQLTool struct {
 	adapter        adapter.DBAdapter
 	useDryRun      bool
@@ -454,33 +454,33 @@ func (t *SQLTool) Call(ctx context.Context, input string) (string, error) {
 
 	sql := strings.TrimSpace(input)
 
-	// Dry Run 验证（如果启用）
+	// Dry Run validation (if enabled)
 	if t.useDryRun {
 		if err := t.adapter.DryRunSQL(ctx, sql); err != nil {
 			return fmt.Sprintf("SQL validation failed: %v", err), nil
 		}
 	}
 
-	// 执行 SQL
+	// Execute SQL
 	result, err := t.adapter.ExecuteQuery(ctx, sql)
 	if err != nil {
 		return fmt.Sprintf("SQL execution failed: %v", err), nil
 	}
 
-	// 格式化结果
+	// Format results
 	output := fmt.Sprintf("Query executed successfully!\nRows: %d\n", result.RowCount)
 
-	// 基于字符长度而非行数来决定是否显示 sample
-	// 序列化结果并检查长度
+	// Decide display based on char length not row count
+	// Serialize result and check length
 	if result.RowCount > 0 {
 		sampleStr := fmt.Sprintf("%v", result.Rows)
-		const maxSampleLength = 1000 // 最大显示 1000 字符
+		const maxSampleLength = 1000 // max display 1000 chars
 
 		if len(sampleStr) <= maxSampleLength {
-			// 完整显示
+			// Full display
 			output += fmt.Sprintf("Sample results: %s\n", sampleStr)
 		} else {
-			// 截断并添加省略标志
+			// Truncate with ellipsis
 			truncated := sampleStr[:maxSampleLength]
 			output += fmt.Sprintf("Sample results: %s... (truncated, showing first %d chars of %d total)\n",
 				truncated, maxSampleLength, len(sampleStr))
@@ -492,7 +492,7 @@ func (t *SQLTool) Call(ctx context.Context, input string) (string, error) {
 	return output, nil
 }
 
-// ClarifyTool 澄清工具 - 用于询问需要返回哪些字段
+// ClarifyTool tool for asking which fields to return
 type ClarifyTool struct {
 	resultFields            []string
 	resultFieldsDescription string
@@ -515,7 +515,7 @@ func (t *ClarifyTool) Call(ctx context.Context, input string) (string, error) {
 
 	fmt.Printf("\n🔔 Clarification requested: %s\n", input)
 
-	// 统一返回字段列表 + 描述
+	// Return field list + descriptions
 	fieldsStr := strings.Join(t.resultFields, ", ")
 	response := fmt.Sprintf("Required fields in EXACT ORDER: %s\n\nField descriptions: %s\n\nIMPORTANT: Use these field names WITHOUT table prefixes (e.g., 'Name' not 'singer.Name')",
 		fieldsStr,

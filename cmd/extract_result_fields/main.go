@@ -13,22 +13,22 @@ import (
 	"reactsql/internal/llm"
 )
 
-// SpiderCase Spider 数据集的一个 case
+// SpiderCase represents a case from Spider dataset
 type SpiderCase struct {
 	DBId     string   `json:"db_id"`
 	Question string   `json:"question"`
 	Query    string   `json:"query"`
 	QueryTok []string `json:"query_tok,omitempty"`
 
-	// 新增字段
+	// Additional fields
 	ResultFields            []string `json:"result_fields,omitempty"`
 	ResultFieldsDescription string   `json:"result_fields_description,omitempty"`
 }
 
 func main() {
-	inputFile := flag.String("input", "benchmarks/spider/dev.json", "输入文件路径")
-	outputFile := flag.String("output", "benchmarks/spider/dev_with_fields.json", "输出文件路径")
-	useV32 := flag.Bool("v3.2", false, "使用 DeepSeek-V3.2 模型（默认使用 V3）")
+	inputFile := flag.String("input", "benchmarks/spider/dev.json", "input file path")
+	outputFile := flag.String("output", "benchmarks/spider/dev_with_fields.json", "output file path")
+	useV32 := flag.Bool("v3.2", false, "Use DeepSeek-V3.2 model (default: V3)")
 	flag.Parse()
 
 	fmt.Println("🚀 Extract Result Fields from Gold SQL")
@@ -36,7 +36,7 @@ func main() {
 	fmt.Printf("📁 Output: %s\n", *outputFile)
 	fmt.Printf("🤖 Model: %s\n\n", llm.GetModelName(*useV32))
 
-	// 1. 读取数据集
+	// 1. Read dataset
 	data, err := os.ReadFile(*inputFile)
 	if err != nil {
 		log.Fatalf("Failed to read input file: %v", err)
@@ -49,7 +49,7 @@ func main() {
 
 	fmt.Printf("📊 Total cases: %d\n\n", len(cases))
 
-	// 2. 创建 LLM
+	// 2. Create LLM
 	llmInstance, err := llm.CreateLLMWithFlag(*useV32)
 	if err != nil {
 		log.Fatalf("Failed to create LLM: %v", err)
@@ -57,11 +57,11 @@ func main() {
 
 	ctx := context.Background()
 
-	// 3. 处理每个 case
+	// 3. Process each case
 	for i := range cases {
 		fmt.Printf("[%d/%d] Processing: %s\n", i+1, len(cases), cases[i].DBId)
 
-		// 提取字段
+		// Extract fields
 		fields, description, err := extractResultFields(ctx, llmInstance, cases[i].Question, cases[i].Query)
 		if err != nil {
 			fmt.Printf("  ⚠️  Failed: %v\n", err)
@@ -75,7 +75,7 @@ func main() {
 		fmt.Printf("  ✓ Description: %s\n\n", description)
 	}
 
-	// 4. 保存结果
+	// 4. Save results
 	output, err := json.MarshalIndent(cases, "", "  ")
 	if err != nil {
 		log.Fatalf("Failed to marshal JSON: %v", err)
@@ -88,7 +88,7 @@ func main() {
 	fmt.Printf("✅ Results saved to: %s\n", *outputFile)
 }
 
-// extractResultFields 从 SQL 中提取结果字段
+// extractResultFields extracts result fields from SQL
 func extractResultFields(ctx context.Context, llm llms.Model, question string, sql string) ([]string, string, error) {
 	prompt := fmt.Sprintf(`Analyze the SQL query and extract the result fields.
 
@@ -123,10 +123,10 @@ Output:`, question, sql)
 		return nil, "", err
 	}
 
-	// 解析响应
+	// Parse response
 	response = strings.TrimSpace(response)
 
-	// 移除可能的 markdown 代码块
+	// Remove possible markdown code blocks
 	response = strings.TrimPrefix(response, "```json")
 	response = strings.TrimPrefix(response, "```")
 	response = strings.TrimSuffix(response, "```")
@@ -141,7 +141,7 @@ Output:`, question, sql)
 		return nil, "", fmt.Errorf("failed to parse LLM response: %w", err)
 	}
 
-	// 将字段描述合并为一个字符串
+	// Merge field descriptions into a string
 	description := strings.Join(result.FieldDescriptions, "; ")
 
 	return result.Fields, description, nil

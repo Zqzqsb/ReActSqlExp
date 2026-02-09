@@ -14,23 +14,23 @@ import (
 	contextpkg "reactsql/internal/context"
 )
 
-// SchemaLinker Schema Linking 模块接口
+// SchemaLinker module interface
 type SchemaLinker interface {
-	// Link 执行 Schema Linking
-	// 输入: query, 所有表的信息
-	// 输出: 相关表名列表, ReAct 步骤（如果使用 ReAct 模式）
+	// Link performs Schema Linking
+	// Input: query, all table info
+	// Output: relevant table names, ReAct steps (if using ReAct mode)
 	Link(ctx context.Context, query string, allTables map[string]*TableInfo) ([]string, []ReActStep, error)
 }
 
-// TableInfo 表的简要信息（用于 Schema Linking）
+// TableInfo brief table info (for Schema Linking)
 type TableInfo struct {
 	Name        string
-	Columns     []string                        // 列名列表
-	ForeignKeys []contextpkg.ForeignKeyMetadata // 外键关系
-	Description string                          // 表描述（可选，来自 rich_context 或表注释）
+	Columns     []string                        // Column name list
+	ForeignKeys []contextpkg.ForeignKeyMetadata // Foreign key relationships
+	Description string                          // Table description (optional, from rich_context or table comment)
 }
 
-// LLMSchemaLinker 基于 LLM 的 Schema Linking
+// LLMSchemaLinker LLM-based Schema Linking
 type LLMSchemaLinker struct {
 	llm           llms.Model
 	adapter       adapter.DBAdapter
@@ -38,7 +38,7 @@ type LLMSchemaLinker struct {
 	tokenRecorder func(prompt, response string)
 }
 
-// NewLLMSchemaLinker 创建 LLM Schema Linker
+// NewLLMSchemaLinker creates LLM Schema Linker
 func NewLLMSchemaLinker(llm llms.Model, dbAdapter adapter.DBAdapter, useReact bool) *LLMSchemaLinker {
 	return &LLMSchemaLinker{
 		llm:      llm,
@@ -47,7 +47,7 @@ func NewLLMSchemaLinker(llm llms.Model, dbAdapter adapter.DBAdapter, useReact bo
 	}
 }
 
-// Link 执行 Schema Linking
+// Link performs Schema Linking
 func (l *LLMSchemaLinker) Link(ctx context.Context, query string, allTables map[string]*TableInfo) ([]string, []ReActStep, error) {
 	if l.useReact {
 		return l.linkWithReact(ctx, query, allTables)
@@ -57,7 +57,7 @@ func (l *LLMSchemaLinker) Link(ctx context.Context, query string, allTables map[
 
 // linkOneShot One-shot Schema Linking
 func (l *LLMSchemaLinker) linkOneShot(ctx context.Context, query string, allTables map[string]*TableInfo) ([]string, []ReActStep, error) {
-	// 构建表信息描述（格式化为易读的列表）
+	// Build table info description (formatted as readable list)
 	var schemaDesc strings.Builder
 	for _, table := range allTables {
 		schemaDesc.WriteString(fmt.Sprintf("- %s\n", table.Name))
@@ -68,7 +68,7 @@ func (l *LLMSchemaLinker) linkOneShot(ctx context.Context, query string, allTabl
 		schemaDesc.WriteString("\n")
 	}
 
-	// 构建 Prompt
+	// Build Prompt
 	prompt := fmt.Sprintf(`You are a database expert. Identify which tables are relevant to answer the question.
 
 Available Tables:
@@ -83,10 +83,10 @@ If no tables are needed, output: none
 
 Output:`, schemaDesc.String(), query)
 
-	// 不打印完整的 Schema Linking prompt
+	// Skip full Schema Linking prompt print
 	fmt.Println("🔍 Schema Linking...")
 
-	// 调用 LLM，带退避重试机制
+	// Call LLM with backoff retry
 	var response string
 	var err error
 	maxRetries := 2
@@ -98,7 +98,7 @@ Output:`, schemaDesc.String(), query)
 			break
 		}
 
-		// 如果还有重试机会，等待后重试
+		// If retries left, wait and retry
 		if attempt < maxRetries {
 			delay := backoffDelays[attempt]
 			fmt.Printf("⚠️  Schema Linking failed (attempt %d/%d): %v\n", attempt+1, maxRetries+1, err)
@@ -113,18 +113,18 @@ Output:`, schemaDesc.String(), query)
 
 	response = strings.TrimSpace(response)
 
-	// 记录 tokens
+	// Record tokens
 	if l.tokenRecorder != nil {
 		l.tokenRecorder(prompt, response)
 	}
 
-	// 解析响应
+	// Parse response
 	if response == "all" {
 		result := make([]string, 0, len(allTables))
 		for name := range allTables {
 			result = append(result, name)
 		}
-		// 创建一个简单的步骤来表示 Schema Linking 过程
+		// Create a simple step to represent Schema Linking process
 		tablesStr := strings.Join(result, ", ")
 		steps := []ReActStep{
 			{
@@ -141,7 +141,7 @@ Output:`, schemaDesc.String(), query)
 	}
 
 	if response == "none" {
-		// 创建一个简单的步骤来表示 Schema Linking 过程
+		// Create a simple step to represent Schema Linking process
 		steps := []ReActStep{
 			{
 				Thought: fmt.Sprintf("The question '%s' does not require any tables to answer.", query),
@@ -156,11 +156,11 @@ Output:`, schemaDesc.String(), query)
 		return []string{}, steps, nil
 	}
 
-	// 只取第一行（LLM 可能会返回额外的 Explanation）
+	// Take first line only (LLM may include extra explanation)
 	lines := strings.Split(response, "\n")
 	firstLine := strings.TrimSpace(lines[0])
 
-	// 解析表名列表
+	// Parse table name list
 	tables := strings.Split(firstLine, ",")
 	result := make([]string, 0, len(tables))
 	for _, table := range tables {
@@ -170,7 +170,7 @@ Output:`, schemaDesc.String(), query)
 		}
 	}
 
-	// 创建一个简单的步骤来表示 Schema Linking 过程
+	// Create a simple step to represent Schema Linking process
 	tablesStr := strings.Join(result, ", ")
 	steps := []ReActStep{
 		{
@@ -187,11 +187,11 @@ Output:`, schemaDesc.String(), query)
 	return result, steps, nil
 }
 
-// linkWithReact ReAct 模式 Schema Linking
+// linkWithReact ReAct mode Schema Linking
 func (l *LLMSchemaLinker) linkWithReact(ctx context.Context, query string, allTables map[string]*TableInfo) ([]string, []ReActStep, error) {
 	fmt.Println("🔍 Schema Linking (ReAct mode)...")
 
-	// 创建 SQL 工具
+	// Create SQL tool
 	sqlTool := &SQLTool{
 		adapter:   l.adapter,
 		useDryRun: false,
@@ -200,8 +200,8 @@ func (l *LLMSchemaLinker) linkWithReact(ctx context.Context, query string, allTa
 	// Create handler to collect ReAct steps
 	reactHandler := &PrettyReActHandler{logMode: "simple"}
 
-	// 创建 ReAct Agent
-	// 策略：告诉模型最大 5 次迭代（制造紧迫感），实际设置 15 次（保证足够空间）
+	// Create ReAct Agent
+	// Strategy: tell model max 5 iterations (urgency), actual 15 (enough room)
 	actualMaxIterations := 15
 	claimedMaxIterations := 5
 
@@ -216,13 +216,13 @@ func (l *LLMSchemaLinker) linkWithReact(ctx context.Context, query string, allTa
 		return nil, []ReActStep{}, err
 	}
 
-	// 构建表信息
+	// Build table info
 	var schemaDesc strings.Builder
 	for _, table := range allTables {
 		schemaDesc.WriteString(fmt.Sprintf("- %s\n", table.Name))
 		schemaDesc.WriteString(fmt.Sprintf("  Columns: %s\n", strings.Join(table.Columns, ", ")))
 
-		// 添加外键信息
+		// Add FK info
 		if len(table.ForeignKeys) > 0 {
 			schemaDesc.WriteString("  Foreign Keys:\n")
 			for _, fk := range table.ForeignKeys {
@@ -236,7 +236,7 @@ func (l *LLMSchemaLinker) linkWithReact(ctx context.Context, query string, allTa
 		schemaDesc.WriteString("\n")
 	}
 
-	// 构建 Prompt
+	// Build Prompt
 	prompt := fmt.Sprintf(`You are a database expert. Identify which tables are relevant to answer the question.
 
 ⚠️  ITERATION LIMIT: You have maximum %d iterations to complete this task. Be efficient!
@@ -283,7 +283,7 @@ IMPORTANT:
 
 Output:`, claimedMaxIterations, schemaDesc.String(), query)
 
-	// 执行 ReAct
+	// Execute ReAct
 	agentResult, err := executor.Call(ctx, map[string]any{"input": prompt})
 	if err != nil {
 		return nil, []ReActStep{}, err
@@ -302,9 +302,9 @@ Output:`, claimedMaxIterations, schemaDesc.String(), query)
 		})
 	}
 
-	// 提取最终结果
+	// Extract final result
 	if output, ok := agentResult["output"].(string); ok {
-		// 只取第一行（LLM 可能会返回额外的 Explanation）
+		// Take first line only (LLM may include extra explanation)
 		lines := strings.Split(output, "\n")
 		firstLine := strings.TrimSpace(lines[0])
 
@@ -334,7 +334,7 @@ Output:`, claimedMaxIterations, schemaDesc.String(), query)
 	return nil, []ReActStep{}, fmt.Errorf("schema linking failed to produce a valid table list")
 }
 
-// ExtractTableInfo 从 Rich Context 提取表信息
+// ExtractTableInfo extracts table info from Rich Context
 func ExtractTableInfo(ctx *contextpkg.SharedContext) map[string]*TableInfo {
 	result := make(map[string]*TableInfo)
 
@@ -344,14 +344,14 @@ func ExtractTableInfo(ctx *contextpkg.SharedContext) map[string]*TableInfo {
 			columns[i] = col.Name
 		}
 
-		// 优先使用 LLM 生成的 Description
+		// Prefer LLM-generated description
 		description := table.Description
 		if description == "" {
-			// 备选：使用表注释
+			// Fallback: use table comment
 			description = table.Comment
 		}
 		if description == "" && len(table.RichContext) > 0 {
-			// 最后备选：使用第一个 rich_context 条目的内容
+			// Last resort: use first rich_context entry
 			for _, v := range table.RichContext {
 				description = v.Content
 				break

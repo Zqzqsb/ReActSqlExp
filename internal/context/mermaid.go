@@ -5,27 +5,27 @@ import (
 	"strings"
 )
 
-// GenerateMermaidER 生成 Mermaid ER 图
-// 注意：调用此方法时必须已经持有锁
+// GenerateMermaidER generates Mermaid ER diagram
+// Note: caller must already hold the lock
 func (c *SharedContext) GenerateMermaidER() *SchemaDiagram {
-	// 不需要加锁，调用者已经持有锁
+	// No lock needed, caller already holds it
 
 	var sb strings.Builder
 
-	// ER 图头部
+	// ER diagram header
 	sb.WriteString("erDiagram\n")
 
-	// 收集所有关系
-	relationships := make(map[string]bool) // 用于去重
+	// Collect all relationships
+	relationships := make(map[string]bool) // for dedup
 
 	for _, table := range c.Tables {
 		for _, fk := range table.ForeignKeys {
-			// 格式: TABLE1 ||--o{ TABLE2 : "relationship"
-			// ||--o{ 表示 one-to-many (一对多)
+			// Format: TABLE1 ||--o{ TABLE2 : "relationship"
+			// ||--o{ represents one-to-many
 			refTable := strings.ToUpper(fk.ReferencedTable)
 			currentTable := strings.ToUpper(table.Name)
 
-			// 关系描述：使用列名作为关系标签
+			// Relationship: use column name as label
 			relationKey := fmt.Sprintf("%s_%s_%s", refTable, currentTable, fk.ColumnName)
 
 			if !relationships[relationKey] {
@@ -38,21 +38,21 @@ func (c *SharedContext) GenerateMermaidER() *SchemaDiagram {
 
 	sb.WriteString("\n")
 
-	// 添加表结构定义
+	// Add table structure definitions
 	for _, table := range c.Tables {
 		tableName := strings.ToUpper(table.Name)
 		sb.WriteString(fmt.Sprintf("    %s {\n", tableName))
 
-		// 添加列定义
+		// Add column definitions
 		for _, col := range table.Columns {
-			// 格式: type column_name PK/FK
+			// Format: type column_name PK/FK
 			var tags []string
 
 			if col.IsPrimaryKey {
 				tags = append(tags, "PK")
 			}
 
-			// 检查是否是外键
+			// Check if foreign key
 			for _, fk := range table.ForeignKeys {
 				if fk.ColumnName == col.Name {
 					tags = append(tags, "FK")
@@ -65,7 +65,7 @@ func (c *SharedContext) GenerateMermaidER() *SchemaDiagram {
 				tagStr = " " + strings.Join(tags, ",")
 			}
 
-			// 简化类型名称
+			// Simplify type name
 			colType := simplifyType(col.Type)
 
 			sb.WriteString(fmt.Sprintf("        %s %s%s\n",
@@ -82,9 +82,9 @@ func (c *SharedContext) GenerateMermaidER() *SchemaDiagram {
 	}
 }
 
-// simplifyType 简化类型名称用于 Mermaid 显示
+// simplifyType simplifies type names for Mermaid display
 func simplifyType(fullType string) string {
-	// 移除长度限制，只保留基本类型
+	// Remove length limits, keep base type
 	fullType = strings.ToLower(fullType)
 
 	if strings.Contains(fullType, "int") {
@@ -106,5 +106,5 @@ func simplifyType(fullType string) string {
 		return "boolean"
 	}
 
-	return "string" // 默认
+	return "string" // Default
 }

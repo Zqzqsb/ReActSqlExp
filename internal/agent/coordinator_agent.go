@@ -12,7 +12,7 @@ import (
 	contextpkg "reactsql/internal/context"
 )
 
-// CoordinatorAgent 调度Agent
+// CoordinatorAgent coordinator agent
 type CoordinatorAgent struct {
 	id        string
 	llm       llms.Model
@@ -21,7 +21,7 @@ type CoordinatorAgent struct {
 	executor  *agents.Executor
 }
 
-// NewCoordinatorAgent 创建调度Agent
+// NewCoordinatorAgent creates coordinator agent
 func NewCoordinatorAgent(
 	id string,
 	llm llms.Model,
@@ -36,14 +36,14 @@ func NewCoordinatorAgent(
 		sharedCtx: sharedCtx,
 	}
 
-	// 创建工具
+	// Create tools
 	sqlTool := &CoordinatorSQLTool{
 		adapter:   adapter,
 		sharedCtx: sharedCtx,
 		agentID:   id,
 	}
 
-	// 创建LangChain executor
+	// Create LangChain executor
 	executor, err := agents.Initialize(
 		llm,
 		[]tools.Tool{sqlTool},
@@ -58,13 +58,13 @@ func NewCoordinatorAgent(
 	return agent, nil
 }
 
-// Execute 执行协调任务
+// Execute runs coordination task
 func (a *CoordinatorAgent) Execute(ctx context.Context) error {
 	if !a.sharedCtx.Quiet {
 		fmt.Printf("\n[%s] Starting coordination...\n", a.id)
 	}
 
-	// 根据数据库类型选择查询语句
+	// Select query based on database type
 	var discoverQuery string
 	switch a.adapter.GetDatabaseType() {
 	case "MySQL":
@@ -107,7 +107,7 @@ Start by discovering tables.`, a.sharedCtx.DatabaseName, a.adapter.GetDatabaseTy
 	return nil
 }
 
-// CoordinatorSQLTool SQL工具（用于协调Agent）
+// CoordinatorSQLTool SQL tool (for coordinator agent)
 type CoordinatorSQLTool struct {
 	adapter   adapter.DBAdapter
 	sharedCtx *contextpkg.SharedContext
@@ -133,7 +133,7 @@ func (t *CoordinatorSQLTool) Call(ctx context.Context, input string) (string, er
 		fmt.Printf("\n[%s] SQL: %s\n", t.agentID, input)
 	}
 
-	// 执行SQL
+	// Execute SQL
 	result, err := t.adapter.ExecuteQuery(ctx, input)
 	if err != nil {
 		return "", err
@@ -143,10 +143,10 @@ func (t *CoordinatorSQLTool) Call(ctx context.Context, input string) (string, er
 		return fmt.Sprintf("SQL Error: %s", result.Error), nil
 	}
 
-	// 格式化结果
+	// Format results
 	output := fmt.Sprintf("Query successful! (%d rows, %dms)\n\n", result.RowCount, result.ExecutionTime)
 
-	// 显示结果
+	// Show results
 	if result.RowCount > 0 {
 		output += "Results:\n"
 		for i, row := range result.Rows {
@@ -158,7 +158,7 @@ func (t *CoordinatorSQLTool) Call(ctx context.Context, input string) (string, er
 		}
 	}
 
-	// 如果是发现表的查询，自动注册任务
+	// If discover tables query, auto-register tasks
 	isDiscoverQuery := contains(input, "SHOW TABLES") ||
 		contains(input, "sqlite_master") ||
 		contains(input, "pg_tables")

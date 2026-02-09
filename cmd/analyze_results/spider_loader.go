@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-// SpiderResult Spider评测结果格式
+// SpiderResult represents Spider evaluation result format
 type SpiderResult struct {
 	DbID           string   `json:"db_id"`
 	Question       string   `json:"question"`
@@ -19,7 +19,7 @@ type SpiderResult struct {
 	SelectedTables []string `json:"selected_tables"`
 }
 
-// LoadSpiderResultFile 加载Spider评测结果文件
+// LoadSpiderResultFile loads Spider evaluation result file
 func LoadSpiderResultFile(filePath string) ([]InputResult, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {

@@ -9,57 +9,52 @@ import (
 	"strings"
 )
 
-// Reporter 处理分析结果的报告和统计
+// Reporter handles report generation and statistics
 type Reporter struct {
 	OutputDir string
 }
 
-// NewReporter 创建报告生成器
+// NewReporter creates a report generator
 func NewReporter(outputDir string) *Reporter {
 	return &Reporter{
 		OutputDir: outputDir,
 	}
 }
 
-// SaveAnalysisResult 保存单个分析结果到文件
+// SaveAnalysisResult saves a single analysis result to file
 func (r *Reporter) SaveAnalysisResult(result *AnalysisResult, originalFilePath string) error {
-	// 确保不修改原始文件，而是创建新的分析结果文件
 	analysisPath := originalFilePath + ".analysis"
 
-	// 序列化结果
 	resultJSON, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
-		return fmt.Errorf("序列化分析结果失败: %v", err)
+		return fmt.Errorf("failed to serialize analysis result: %v", err)
 	}
 
-	// 写入文件
 	if err := os.WriteFile(analysisPath, resultJSON, 0644); err != nil {
-		return fmt.Errorf("写入分析结果文件失败: %v", err)
+		return fmt.Errorf("failed to write analysis result file: %v", err)
 	}
 
 	return nil
 }
 
-// GenerateSummaryReport 生成汇总报告
+// GenerateSummaryReport generates a summary report
 func (r *Reporter) GenerateSummaryReport(stats *ErrorStatistics, totalFiles int) error {
-	// 创建报告目录
 	reportDir := filepath.Join(r.OutputDir, "analysis_reports")
 	if err := os.MkdirAll(reportDir, 0755); err != nil {
-		return fmt.Errorf("创建报告目录失败: %v", err)
+		return fmt.Errorf("failed to create report directory: %v", err)
 	}
 
-	// 创建汇总报告文件
 	reportPath := filepath.Join(reportDir, "summary_report.json")
 
-	// 计算正确率
+	// Calculate accuracy
 	correctRate := float64(stats.CorrectCount+stats.EquivalentCount) / float64(totalFiles) * 100
 
-	// 按错误类型排序错误计数
+	// Sort error counts by frequency
 	sort.Slice(stats.ErrorCounts, func(i, j int) bool {
 		return stats.ErrorCounts[i].Count > stats.ErrorCounts[j].Count
 	})
 
-	// 创建报告数据
+	// Create report data
 	report := map[string]interface{}{
 		"total_files":      totalFiles,
 		"correct_count":    stats.CorrectCount,
@@ -79,34 +74,34 @@ func (r *Reporter) GenerateSummaryReport(stats *ErrorStatistics, totalFiles int)
 		"error_counts": stats.ErrorCounts,
 	}
 
-	// 序列化报告
+	// Serialize report
 	reportJSON, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
-		return fmt.Errorf("序列化报告失败: %v", err)
+		return fmt.Errorf("failed to serialize report: %v", err)
 	}
 
-	// 写入报告文件
+	// Write report file
 	if err := os.WriteFile(reportPath, reportJSON, 0644); err != nil {
-		return fmt.Errorf("写入报告文件失败: %v", err)
+		return fmt.Errorf("failed to write report file: %v", err)
 	}
 
 	return nil
 }
 
-// PrintSummary 打印分析结果摘要
+// PrintSummary prints analysis results summary
 func (r *Reporter) PrintSummary(stats *ErrorStatistics, totalFiles int) {
-	// 计算正确率
+	// Calculate accuracy
 	correctRate := float64(stats.CorrectCount+stats.EquivalentCount+stats.AmbiguousCount+stats.ReferenceErrorCount) / float64(totalFiles) * 100
 
-	// 彩色标题
+	// Colored title
 	fmt.Printf("\n%s%s======================================%s\n", Bold, ColorCyan, ColorReset)
-	fmt.Printf("%s%s             SQL分析结果摘要             %s\n", Bold, ColorCyan, ColorReset)
+	fmt.Printf("%s%s             SQL Analysis Summary             %s\n", Bold, ColorCyan, ColorReset)
 	fmt.Printf("%s%s======================================%s\n\n", Bold, ColorCyan, ColorReset)
 
-	// 基本统计信息
-	fmt.Printf("%s总查询数:%s %d\n", Bold, ColorReset, totalFiles)
+	// Basic statistics
+	fmt.Printf("%sTotal Queries:%s %d\n", Bold, ColorReset, totalFiles)
 
-	// 正确率信息，根据百分比设置颜色
+	// Accuracy info, color based on percentage
 	rateColor := ColorRed
 	if correctRate >= 80 {
 		rateColor = ColorGreen
@@ -116,43 +111,43 @@ func (r *Reporter) PrintSummary(stats *ErrorStatistics, totalFiles int) {
 		rateColor = ColorBlue
 	}
 
-	fmt.Printf("%s正确数量:%s %s%d%s (精确匹配: %s%d%s, 语义等价: %s%d%s)\n",
+	fmt.Printf("%sCorrect Count:%s %s%d%s (Exact Match: %s%d%s, Semantic Match: %s%d%s)\n",
 		Bold, ColorReset, ColorGreen, stats.CorrectCount+stats.EquivalentCount, ColorReset,
 		ColorGreen, stats.CorrectCount, ColorReset,
 		ColorGreen, stats.EquivalentCount, ColorReset)
 
-	fmt.Printf("%s模糊查询:%s %s%d%s\n", Bold, ColorReset, ColorYellow, stats.AmbiguousCount, ColorReset)
+	fmt.Printf("%sAmbiguous:%s %s%d%s\n", Bold, ColorReset, ColorYellow, stats.AmbiguousCount, ColorReset)
 
 	errorCount := totalFiles - stats.CorrectCount - stats.EquivalentCount - stats.AmbiguousCount
-	fmt.Printf("%s错误数量:%s %s%d%s\n", Bold, ColorReset, ColorRed, errorCount, ColorReset)
+	fmt.Printf("%sError Count:%s %s%d%s\n", Bold, ColorReset, ColorRed, errorCount, ColorReset)
 
-	fmt.Printf("%s总体正确率(排除模糊和参考答案错误):%s %s%.2f%%%s\n\n", Bold, ColorReset, rateColor, correctRate, ColorReset)
+	fmt.Printf("%sAccuracy (excl. ambiguous & ref errors):%s %s%.2f%%%s\n\n", Bold, ColorReset, rateColor, correctRate, ColorReset)
 
-	// 错误类型统计 - 按频率排序
-	fmt.Printf("%s%s错误类型统计(按频率排序)%s\n", Bold, ColorRed, ColorReset)
+	// Error type statistics - sorted by frequency
+	fmt.Printf("%s%sError Type Statistics (by frequency)%s\n", Bold, ColorRed, ColorReset)
 	fmt.Printf("%s--------------------------------------%s\n", Bold, ColorReset)
 
-	// 按错误类型排序错误计数
+	// Sort error counts by frequency
 	sort.Slice(stats.ErrorCounts, func(i, j int) bool {
 		return stats.ErrorCounts[i].Count > stats.ErrorCounts[j].Count
 	})
 
-	// 打印错误类型统计，使用表格式式
-	fmt.Printf("%s%-20s %10s %15s%s\n", Bold, "错误类型", "数量", "百分比", ColorReset)
+	// Print error type statistics in table format
+	fmt.Printf("%s%-20s %10s %15s%s\n", Bold, "Error Type", "Count", "Percentage", ColorReset)
 	fmt.Printf("%s----------------------------------------%s\n", Bold, ColorReset)
 
-	// 设置每种错误类型的颜色
+	// Set color for each error type
 	getErrorColor := func(errorType string) string {
 		switch errorType {
-		case "参考答案有语法错误":
+		case "reference_error":
 			return ColorYellow
-		case "投影错误":
+		case "Projection Error":
 			return ColorPurple
-		case "行数错误":
+		case "Row Count Error":
 			return ColorBlue
-		case "数据不一致错误":
+		case "data_mismatch":
 			return ColorCyan
-		case "模糊查询":
+		case "ambiguous_query":
 			return ColorYellow
 		default:
 			return ColorRed
@@ -166,38 +161,38 @@ func (r *Reporter) PrintSummary(stats *ErrorStatistics, totalFiles int) {
 			ec.Type, errorColor, ec.Count, ColorReset, percentage)
 	}
 
-	// 详细错误统计
-	fmt.Printf("\n%s%s详细错误分类统计%s\n", Bold, ColorBlue, ColorReset)
+	// Detailed error statistics
+	fmt.Printf("\n%s%sDetailed Error Classification%s\n", Bold, ColorBlue, ColorReset)
 	fmt.Printf("%s--------------------------------------%s\n", Bold, ColorReset)
 
-	// 打印详细错误统计，使用表格式式
-	fmt.Printf("%s%-20s %10s %15s%s\n", Bold, "错误类型", "数量", "百分比", ColorReset)
+	// Print detailed error statistics
+	fmt.Printf("%s%-20s %10s %15s%s\n", Bold, "Error Type", "Count", "Percentage", ColorReset)
 	fmt.Printf("%s----------------------------------------%s\n", Bold, ColorReset)
 
-	// 添加单个错误类型的打印函数
+	// Print function for each error type
 	printErrorType := func(name string, count int, color string) {
 		percent := float64(count) / float64(totalFiles) * 100
 		fmt.Printf("%-20s %s%10d%s %15.2f%%\n", name, color, count, ColorReset, percent)
 	}
 
-	// 预测SQL的语法错误
-	printErrorType("语法错误", stats.SyntaxErrorCount, ColorYellow)
-	// 参考答案的语法错误
-	printErrorType("参考答案语法错误", stats.ReferenceErrorCount, ColorYellow)
-	// 投影错误（列选择错误）
-	printErrorType("投影错误", stats.ProjectionErrorCount, ColorPurple)
-	// 行数错误（专门统计）
-	printErrorType("行数错误", stats.RowErrorCount, ColorBlue)
-	// 数据不一致错误
-	printErrorType("数据不一致", stats.DataErrorCount, ColorCyan)
-	// 执行错误（已计入语法错误，这里单独显示）
-	printErrorType("执行错误", stats.ExecutionErrorCount, ColorRed)
-	// 其他错误
-	printErrorType("其他错误", stats.OtherErrorCount, ColorRed)
+	// Predicted SQL syntax errors
+	printErrorType("Syntax Error", stats.SyntaxErrorCount, ColorYellow)
+	// Reference answer syntax errors
+	printErrorType("Reference Error", stats.ReferenceErrorCount, ColorYellow)
+	// Projection error (column selection)
+	printErrorType("Projection Error", stats.ProjectionErrorCount, ColorPurple)
+	// Row count error
+	printErrorType("Row Count Error", stats.RowErrorCount, ColorBlue)
+	// Data mismatch error
+	printErrorType("Data Mismatch", stats.DataErrorCount, ColorCyan)
+	// Execution error
+	printErrorType("Execution Error", stats.ExecutionErrorCount, ColorRed)
+	// Other error
+	printErrorType("Other Error", stats.OtherErrorCount, ColorRed)
 
-	// SPJ 统计报告
+	// SPJ statistics report
 	if stats.SPJCaseCount > 0 {
-		fmt.Printf("\n%s%sSPJ (Special Judge) 统计%s\n", Bold, ColorPurple, ColorReset)
+		fmt.Printf("\n%s%sSPJ (Special Judge) Statistics%s\n", Bold, ColorPurple, ColorReset)
 		fmt.Printf("%s--------------------------------------%s\n", Bold, ColorReset)
 
 		spjCorrectRate := float64(stats.SPJCorrectCount) / float64(stats.SPJCaseCount) * 100
@@ -208,101 +203,101 @@ func (r *Reporter) PrintSummary(stats *ErrorStatistics, totalFiles int) {
 			spjColor = ColorYellow
 		}
 
-		fmt.Printf("%sSPJ 案例总数:%s %s%d%s (占总查询的 %.2f%%)\n",
+		fmt.Printf("%sSPJ Total Cases:%s %s%d%s (of total queries %.2f%%)\n",
 			Bold, ColorReset, ColorCyan, stats.SPJCaseCount, ColorReset,
 			float64(stats.SPJCaseCount)/float64(totalFiles)*100)
-		fmt.Printf("%sSPJ 判定正确:%s %s%d%s\n",
+		fmt.Printf("%sSPJ Correct:%s %s%d%s\n",
 			Bold, ColorReset, ColorGreen, stats.SPJCorrectCount, ColorReset)
-		fmt.Printf("%sSPJ 判定错误:%s %s%d%s\n",
+		fmt.Printf("%sSPJ Incorrect:%s %s%d%s\n",
 			Bold, ColorReset, ColorRed, stats.SPJIncorrectCount, ColorReset)
-		fmt.Printf("%sSPJ 正确率:%s %s%.2f%%%s\n",
+		fmt.Printf("%sSPJ Accuracy:%s %s%.2f%%%s\n",
 			Bold, ColorReset, spjColor, spjCorrectRate, ColorReset)
 
-		fmt.Printf("\n%s说明:%s SPJ 用于处理 LIMIT 1 查询中有多个并列极值的情况\n",
+		fmt.Printf("\n%sNote:%s SPJ handles LIMIT 1 queries with multiple tied extreme values\n",
 			Bold, ColorReset)
-		fmt.Printf("      当 Gold SQL 使用 LIMIT 1 但有多个并列值时，Pred SQL 返回其中任意一个都判定为正确\n")
+		fmt.Printf("      When Gold SQL uses LIMIT 1 but has multiple tied values, any correct value is accepted\n")
 	}
 
-	// 报告保存路径
+	// Report save path
 	reportPath := filepath.Join(r.OutputDir, "analysis_reports", "summary_report.json")
-	fmt.Printf("\n%s报告已保存到:%s %s%s%s\n",
+	fmt.Printf("\n%sReport saved to:%s %s%s%s\n",
 		Bold, ColorReset, ColorGreen, reportPath, ColorReset)
 }
 
-// ResultClassifier 负责将分析结果按类型分类并输出到不同目录
+// ResultClassifier classifies results by type and outputs to directories
 type ResultClassifier struct {
 	baseDir string
 }
 
-// NewResultClassifier 创建一个新的结果分类器
+// NewResultClassifier creates a new result classifier
 func NewResultClassifier(baseDir string) *ResultClassifier {
 	return &ResultClassifier{
 		baseDir: baseDir,
 	}
 }
 
-// ClassifyAndSaveResults 将分析结果分类并保存到对应目录
+// ClassifyAndSaveResults classifies and saves results
 func (rc *ResultClassifier) ClassifyAndSaveResults(results []*AnalysisResult) error {
-	// 创建所有需要的目录
+	// Create all needed directories
 	directories := []string{
-		"correct_exact_match",     // 精确匹配的正确结果
-		"correct_equivalent",      // 语义等价的正确结果
-		"incorrect_projection",    // 投影错误
-		"incorrect_row_count",     // 行数错误
-		"incorrect_data_mismatch", // 数据不一致错误
-		"incorrect_execution",     // 执行错误
-		"incorrect_reference",     // 参考答案语法错误
-		"incorrect_unknown",       // 未知错误
-		"ambiguous_queries",       // 模糊查询（可能添加其他类型）
+		"correct_exact_match",     // exact match correct
+		"correct_equivalent",      // semantic match correct
+		"incorrect_projection",    // Projection error
+		"incorrect_row_count",     // Row count error
+		"incorrect_data_mismatch", // Data mismatch error
+		"incorrect_execution",     // execution error
+		"incorrect_reference",     // reference error
+		"incorrect_unknown",       // unknown error
+		"ambiguous_queries",       // ambiguous queries
 	}
 
 	for _, dir := range directories {
 		fullPath := filepath.Join(rc.baseDir, dir)
 		if err := EnsureDirectoryExists(fullPath); err != nil {
-			return fmt.Errorf("创建目录 %s 失败: %v", fullPath, err)
+			return fmt.Errorf("failed to create directory %s: %v", fullPath, err)
 		}
 	}
 
-	// 按类型分类保存结果
+	// Classify and save by type
 	for _, result := range results {
 		var category string
 
 		if result.IsCorrect {
-			// 根据错误类型判断是精确匹配还是语义等价
-			if result.ErrorType == "精准匹配" {
+			// Determine exact or semantic match
+			if result.ErrorType == "exact_match" {
 				category = "correct_exact_match"
-			} else if result.ErrorType == "语义匹配" {
+			} else if result.ErrorType == "semantic_match" {
 				category = "correct_equivalent"
 			} else {
-				// 向后兼容，默认为精确匹配
+				// Backward compat, default exact match
 				category = "correct_exact_match"
 			}
-		} else if result.ErrorType == "模糊查询" {
+		} else if result.ErrorType == "ambiguous_query" {
 			category = "ambiguous_queries"
 		} else {
-			// 根据错误类型分类
+			// Classify by error type
 			switch result.ErrorType {
-			case "投影错误":
+			case "Projection Error":
 				category = "incorrect_projection"
-			case "行数错误":
+			case "Row Count Error":
 				category = "incorrect_row_count"
-			case "数据不一致错误":
+			case "data_mismatch":
 				category = "incorrect_data_mismatch"
-			case "执行错误":
+			case "Execution Error":
 				category = "incorrect_execution"
-			case "参考答案有语法错误":
+			case "reference_error":
 				category = "incorrect_reference"
 			default:
 				category = "incorrect_unknown"
 			}
 		}
 
-		// 保存结果到对应目录
+		// Save result to directory
 		filename := fmt.Sprintf("%s_%d.json", strings.ToLower(category), result.ID)
 		filePath := filepath.Join(rc.baseDir, category, filename)
 
 		if err := rc.saveResultToFile(result, filePath); err != nil {
-			fmt.Printf("保存结果 %d 到 %s 失败: %v\n", result.ID, filePath, err)
+			fmt.Printf("failed to save result %d to %s: %v\n", result.ID, filePath, err)
 			continue
 		}
 	}
@@ -310,9 +305,9 @@ func (rc *ResultClassifier) ClassifyAndSaveResults(results []*AnalysisResult) er
 	return nil
 }
 
-// saveResultToFile 将单个分析结果保存到JSON文件
+// saveResultToFile saves a single analysis result to JSON
 func (rc *ResultClassifier) saveResultToFile(result *AnalysisResult, filePath string) error {
-	// 提取错误信息
+	// Extract error info
 	var gtError, predError interface{}
 	if result.GTResult != nil && !result.GTResult.Success {
 		gtError = result.GTResult.Error
@@ -321,7 +316,7 @@ func (rc *ResultClassifier) saveResultToFile(result *AnalysisResult, filePath st
 		predError = result.PredResult.Error
 	}
 
-	// 转换为期望的JSON格式
+	// Convert to expected JSON format
 	outputData := map[string]interface{}{
 		"id":            result.ID,
 		"db_id":         result.DBName,
@@ -338,12 +333,12 @@ func (rc *ResultClassifier) saveResultToFile(result *AnalysisResult, filePath st
 		"pred_error":    predError,
 	}
 
-	// 将数据编码为JSON
+	// Encode to JSON
 	jsonData, err := json.MarshalIndent(outputData, "", "  ")
 	if err != nil {
-		return fmt.Errorf("JSON编码失败: %v", err)
+		return fmt.Errorf("JSON encoding failed: %v", err)
 	}
 
-	// 写入文件
+	// Write file
 	return os.WriteFile(filePath, jsonData, 0644)
 }

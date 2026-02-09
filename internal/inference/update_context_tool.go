@@ -10,18 +10,18 @@ import (
 	"time"
 )
 
-// UpdateRichContextTool 更新 Rich Context 的工具
+// UpdateRichContextTool tool for updating Rich Context
 type UpdateRichContextTool struct {
 	dbName      string
 	contextPath string
 }
 
-// Name 工具名称
+// Name returns tool name
 func (t *UpdateRichContextTool) Name() string {
 	return "update_rich_context"
 }
 
-// Description 工具描述
+// Description returns tool description
 func (t *UpdateRichContextTool) Description() string {
 	return `Update expired or incorrect Rich Context information.
 Use this tool when you find an EXPIRED insight is incorrect after verification.
@@ -41,7 +41,7 @@ Example:
 }`
 }
 
-// UpdateInput 更新参数
+// UpdateInput update parameters
 type UpdateInput struct {
 	TableName  string `json:"table_name"`
 	NoteKey    string `json:"note_key"`
@@ -49,29 +49,29 @@ type UpdateInput struct {
 	Reason     string `json:"reason"`
 }
 
-// BusinessNote Rich Context 条目
+// BusinessNote Rich Context entry
 type BusinessNote struct {
 	Content   string `json:"content"`
 	ExpiresAt string `json:"expires_at"`
 }
 
-// Call 执行更新
+// Call executes update
 func (t *UpdateRichContextTool) Call(ctx context.Context, input string) (string, error) {
-	// 清理输入：移除可能的 markdown 代码块标记
+	// Clean input: remove possible markdown code blocks
 	input = strings.TrimSpace(input)
 	input = strings.TrimPrefix(input, "```json")
 	input = strings.TrimPrefix(input, "```")
 	input = strings.TrimSuffix(input, "```")
 	input = strings.TrimSpace(input)
 
-	// 解析输入
+	// Parse input
 	var updateInput UpdateInput
 	if err := json.Unmarshal([]byte(input), &updateInput); err != nil {
-		// 返回友好的错误信息，但不中断推理
+		// Return friendly error, do not interrupt inference
 		return fmt.Sprintf("⚠️  Failed to parse input JSON: %v\nPlease provide valid JSON without markdown code blocks.", err), nil
 	}
 
-	// 验证参数
+	// Validate parameters
 	if updateInput.TableName == "" {
 		return "⚠️  Error: table_name is required", nil
 	}
@@ -82,49 +82,49 @@ func (t *UpdateRichContextTool) Call(ctx context.Context, input string) (string,
 		return "⚠️  Error: new_content is required", nil
 	}
 
-	// 读取 Rich Context 文件
+	// Read Rich Context file
 	data, err := os.ReadFile(t.contextPath)
 	if err != nil {
 		return fmt.Sprintf("⚠️  Failed to read context file: %v\nContinue with SQL generation.", err), nil
 	}
 
-	// 解析为通用 map
+	// Parse as generic map
 	var rawData map[string]interface{}
 	if err := json.Unmarshal(data, &rawData); err != nil {
 		return fmt.Sprintf("⚠️  Failed to parse context file: %v\nContinue with SQL generation.", err), nil
 	}
 
-	// 获取 tables
+	// Get tables
 	tables, ok := rawData["tables"].(map[string]interface{})
 	if !ok {
 		return "⚠️  No tables field in context. Continue with SQL generation.", nil
 	}
 
-	// 获取指定表
+	// Get specified table
 	tableData, ok := tables[updateInput.TableName].(map[string]interface{})
 	if !ok {
 		return fmt.Sprintf("⚠️  Table '%s' not found in context. Continue with SQL generation.", updateInput.TableName), nil
 	}
 
-	// 获取 rich_context
+	// Get rich_context
 	richContext, ok := tableData["rich_context"].(map[string]interface{})
 	if !ok {
 		return fmt.Sprintf("⚠️  No rich_context in table '%s'. Continue with SQL generation.", updateInput.TableName), nil
 	}
 
-	// 检查 note 是否存在 - 如果不存在，创建新的
+	// Check note existence - create new if not found
 	if _, exists := richContext[updateInput.NoteKey]; !exists {
 		return fmt.Sprintf("⚠️  Note key '%s' not found in table '%s'.\nTip: This might be a new insight. You can continue with SQL generation based on your findings.", updateInput.NoteKey, updateInput.TableName), nil
 	}
 
-	// 更新 note
+	// Update note
 	expiresAt := time.Now().Add(7 * 24 * time.Hour).Format(time.RFC3339)
 	richContext[updateInput.NoteKey] = map[string]string{
 		"content":    updateInput.NewContent,
 		"expires_at": expiresAt,
 	}
 
-	// 写回文件
+	// Write back to file
 	output, err := json.MarshalIndent(rawData, "", "  ")
 	if err != nil {
 		return fmt.Sprintf("⚠️  Failed to marshal context: %v\nContinue with SQL generation.", err), nil
@@ -134,7 +134,7 @@ func (t *UpdateRichContextTool) Call(ctx context.Context, input string) (string,
 		return fmt.Sprintf("⚠️  Failed to write context file: %v\nContinue with SQL generation.", err), nil
 	}
 
-	// 返回成功信息
+	// Return success info
 	result := fmt.Sprintf(
 		"✓ Rich Context updated successfully!\n"+
 			"Table: %s\n"+
@@ -158,9 +158,9 @@ func (t *UpdateRichContextTool) Call(ctx context.Context, input string) (string,
 	return result, nil
 }
 
-// NewUpdateRichContextTool 创建更新工具
+// NewUpdateRichContextTool creates update tool
 func NewUpdateRichContextTool(dbName, dbType string) *UpdateRichContextTool {
-	// 构建 context 文件路径
+	// Build context file path
 	contextPath := filepath.Join("contexts", strings.ToLower(dbType), "spider", dbName+".json")
 
 	return &UpdateRichContextTool{

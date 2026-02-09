@@ -5,17 +5,17 @@ import (
 	"strings"
 )
 
-// AnalyzeJoinPaths 分析表之间的 JOIN 路径
+// AnalyzeJoinPaths analyzes JOIN paths between tables
 func (c *SharedContext) AnalyzeJoinPaths() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// 不再生成冗长的 JOIN 路径和字段语义信息
-	// 这些信息会让 Rich Context 过于臃肿，造成注意力分散
-	// 外键关系（foreign_keys）已经足够表达 JOIN 信息
-	// LLM 可以根据外键关系自行推断 JOIN 路径
+	// No longer generates verbose JOIN path and field semantic info
+	// This info bloats Rich Context and distracts attention
+	// Foreign key relationships are sufficient for JOIN info
+	// LLM can infer JOIN paths from foreign key relationships
 
-	// 保留数据结构初始化，避免 nil 指针
+	// Keep data structure init to avoid nil pointers
 	if c.JoinPaths == nil {
 		c.JoinPaths = make(map[string]*JoinPath)
 	}
@@ -24,7 +24,7 @@ func (c *SharedContext) AnalyzeJoinPaths() {
 	}
 }
 
-// buildForeignKeyGraph 构建外键关系图
+// buildForeignKeyGraph builds FK relationship graph
 func (c *SharedContext) buildForeignKeyGraph() map[string][]string {
 	graph := make(map[string][]string)
 
@@ -34,7 +34,7 @@ func (c *SharedContext) buildForeignKeyGraph() map[string][]string {
 		}
 
 		for _, fk := range table.ForeignKeys {
-			// 添加双向边（因为 JOIN 可以双向）
+			// Add bidirectional edges (JOIN works both ways)
 			graph[tableName] = append(graph[tableName], fk.ReferencedTable)
 			if _, exists := graph[fk.ReferencedTable]; !exists {
 				graph[fk.ReferencedTable] = []string{}
@@ -46,7 +46,7 @@ func (c *SharedContext) buildForeignKeyGraph() map[string][]string {
 	return graph
 }
 
-// findShortestPath 使用 BFS 找到最短路径
+// findShortestPath uses BFS to find shortest path
 func (c *SharedContext) findShortestPath(graph map[string][]string, from, to string) []string {
 	if from == to {
 		return []string{from}
@@ -77,10 +77,10 @@ func (c *SharedContext) findShortestPath(graph map[string][]string, from, to str
 		}
 	}
 
-	return nil // 没有找到路径
+	return nil // no path found
 }
 
-// buildJoinPath 根据路径构建 JoinPath 对象
+// buildJoinPath builds JoinPath from path
 func (c *SharedContext) buildJoinPath(path []string) *JoinPath {
 	if len(path) < 2 {
 		return nil
@@ -93,14 +93,14 @@ func (c *SharedContext) buildJoinPath(path []string) *JoinPath {
 		fromTable := path[i]
 		toTable := path[i+1]
 
-		// 找到连接条件
+		// Find join condition
 		joinClause := c.findJoinClause(fromTable, toTable)
 		if joinClause != "" {
 			joinClauses = append(joinClauses, joinClause)
 		}
 	}
 
-	// 生成描述
+	// Generate description
 	if len(path) == 2 {
 		description = fmt.Sprintf("Direct join between %s and %s", path[0], path[1])
 	} else {
@@ -117,9 +117,9 @@ func (c *SharedContext) buildJoinPath(path []string) *JoinPath {
 	}
 }
 
-// findJoinClause 找到两个表之间的 JOIN 条件
+// findJoinClause finds JOIN condition between two tables
 func (c *SharedContext) findJoinClause(table1, table2 string) string {
-	// 检查 table1 是否有指向 table2 的外键
+	// Check if table1 has FK to table2
 	if t1, exists := c.Tables[table1]; exists {
 		for _, fk := range t1.ForeignKeys {
 			if fk.ReferencedTable == table2 {
@@ -130,7 +130,7 @@ func (c *SharedContext) findJoinClause(table1, table2 string) string {
 		}
 	}
 
-	// 检查 table2 是否有指向 table1 的外键
+	// Check if table2 has FK to table1
 	if t2, exists := c.Tables[table2]; exists {
 		for _, fk := range t2.ForeignKeys {
 			if fk.ReferencedTable == table1 {
@@ -144,7 +144,7 @@ func (c *SharedContext) findJoinClause(table1, table2 string) string {
 	return ""
 }
 
-// reversePath 反转路径
+// reversePath reverses path
 func (c *SharedContext) reversePath(path []string) []string {
 	reversed := make([]string, len(path))
 	for i := 0; i < len(path); i++ {
@@ -153,10 +153,10 @@ func (c *SharedContext) reversePath(path []string) []string {
 	return reversed
 }
 
-// analyzeFieldSemantics 分析字段语义
+// analyzeFieldSemantics analyzes field semantics
 func (c *SharedContext) analyzeFieldSemantics() {
 	for tableName, table := range c.Tables {
-		// 分析外键字段
+		// Analyze FK fields
 		for _, fk := range table.ForeignKeys {
 			key := fmt.Sprintf("%s.%s", tableName, fk.ColumnName)
 			c.FieldSemantics[key] = &FieldSemantic{
@@ -168,13 +168,13 @@ func (c *SharedContext) analyzeFieldSemantics() {
 			}
 		}
 
-		// 分析可能的 ID 字段（但不是外键）
+		// Analyze possible ID fields (not FK)
 		for _, col := range table.Columns {
 			colLower := strings.ToLower(col.Name)
 			if strings.HasSuffix(colLower, "_id") || strings.HasSuffix(colLower, "id") {
 				key := fmt.Sprintf("%s.%s", tableName, col.Name)
 
-				// 检查是否已经作为外键处理
+				// Check if already handled as FK
 				if _, exists := c.FieldSemantics[key]; !exists {
 					if col.IsPrimaryKey {
 						c.FieldSemantics[key] = &FieldSemantic{
@@ -197,7 +197,7 @@ func (c *SharedContext) analyzeFieldSemantics() {
 	}
 }
 
-// FormatJoinPathsForPrompt 格式化 JOIN 路径信息用于 Prompt
+// FormatJoinPathsForPrompt formats JOIN path info for Prompt
 func (c *SharedContext) FormatJoinPathsForPrompt() string {
 	if len(c.JoinPaths) == 0 {
 		return ""
@@ -207,7 +207,7 @@ func (c *SharedContext) FormatJoinPathsForPrompt() string {
 	sb.WriteString("\n## Join Path Guidelines\n")
 	sb.WriteString("When joining tables, refer to these pre-analyzed join paths:\n\n")
 
-	// 按表名排序输出
+	// Sort output by table name
 	for key, joinPath := range c.JoinPaths {
 		sb.WriteString(fmt.Sprintf("**%s**:\n", key))
 		sb.WriteString(fmt.Sprintf("  - Path: %s\n", strings.Join(joinPath.Path, " → ")))
@@ -224,7 +224,7 @@ func (c *SharedContext) FormatJoinPathsForPrompt() string {
 	return sb.String()
 }
 
-// FormatFieldSemanticsForPrompt 格式化字段语义信息用于 Prompt
+// FormatFieldSemanticsForPrompt formats field semantic info for Prompt
 func (c *SharedContext) FormatFieldSemanticsForPrompt() string {
 	if len(c.FieldSemantics) == 0 {
 		return ""
@@ -234,7 +234,7 @@ func (c *SharedContext) FormatFieldSemanticsForPrompt() string {
 	sb.WriteString("\n## Field Semantics\n")
 	sb.WriteString("Important field storage information:\n\n")
 
-	// 按表名分组
+	// Group by table name
 	tableFields := make(map[string][]*FieldSemantic)
 	for _, fs := range c.FieldSemantics {
 		tableFields[fs.TableName] = append(tableFields[fs.TableName], fs)

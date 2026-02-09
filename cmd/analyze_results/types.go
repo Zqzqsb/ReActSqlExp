@@ -4,10 +4,10 @@ import (
 	"strings"
 )
 
-// DBType 表示支持的数据库类型
+// DBType represents supported database type
 type DBType int
 
-// 数据库类型枚举
+// Database type enum
 const (
 	DBTypeUnknown DBType = iota
 	DBTypeSQLite
@@ -15,7 +15,7 @@ const (
 	DBTypeMySQL
 )
 
-// String 返回数据库类型的字符串表示
+// String returns the string representation of DBType
 func (t DBType) String() string {
 	switch t {
 	case DBTypeSQLite:
@@ -29,7 +29,7 @@ func (t DBType) String() string {
 	}
 }
 
-// ParseDBType 将字符串转换为DBType
+// ParseDBType converts string to DBType
 func ParseDBType(dbType string) DBType {
 	switch strings.ToLower(dbType) {
 	case "sqlite":
@@ -43,7 +43,7 @@ func ParseDBType(dbType string) DBType {
 	}
 }
 
-// InputResult 表示输入的SQL结果结构
+// InputResult represents input SQL result structure
 type InputResult struct {
 	ID        int    `json:"id"`
 	DBName    string `json:"db_name"`
@@ -52,10 +52,10 @@ type InputResult struct {
 	PredSQL   string `json:"pred_sql"`
 	Thinking  string `json:"thinking,omitempty"`
 	Ambiguous string `json:"ambiguous,omitempty"`
-	SPJType   string `json:"spj_type,omitempty"` // SPJ 类型标签
+	SPJType   string `json:"spj_type,omitempty"` // SPJ type tag
 }
 
-// AnalysisResult 表示分析后的SQL结果结构
+// AnalysisResult represents analyzed SQL result structure
 type AnalysisResult struct {
 	ID           int    `json:"id"`
 	DBName       string `json:"db_id"`
@@ -68,29 +68,29 @@ type AnalysisResult struct {
 	ErrorType    string `json:"error_type,omitempty"`
 	Thinking     string `json:"thinking[optional],omitempty"`
 	Ambiguous    string `json:"ambigous[optional],omitempty"`
-	SPJType      string `json:"spj_type,omitempty"`   // SPJ 类型
-	SPJResult    string `json:"spj_result,omitempty"` // SPJ 判定结果说明
+	SPJType      string `json:"spj_type,omitempty"`   // SPJ type
+	SPJResult    string `json:"spj_result,omitempty"` // SPJ judgment description
 
-	// 执行结果
+	// Execution result
 	GTResult   *ExecResult `json:"gt_result,omitempty"`
 	PredResult *ExecResult `json:"pred_result,omitempty"`
 }
 
-// ExecResult 表示SQL执行结果
+// ExecResult represents SQL execution result
 type ExecResult struct {
 	Success bool       `json:"Success"`
 	Error   string     `json:"Error"`
 	Rows    [][]string `json:"Rows"`
 }
 
-// ErrorCount 用于错误统计排序
+// ErrorCount for error statistics sorting
 type ErrorCount struct {
 	Reason string
 	Count  int
 	Type   string
 }
 
-// ErrorStatistics 保存错误统计信息
+// ErrorStatistics stores error statistics
 type ErrorStatistics struct {
 	TotalCount           int
 	CorrectCount         int
@@ -100,18 +100,18 @@ type ErrorStatistics struct {
 	SyntaxErrorCount     int
 	ProjectionErrorCount int
 	DataErrorCount       int
-	RowErrorCount        int // 专门用于行数错误统计
-	ReferenceErrorCount  int // 参考答案有语法错误
-	ExecutionErrorCount  int // 执行错误（预测SQL语法错误）
-	// 下面三个字段已不再使用，保留是为了向后兼容
+	RowErrorCount        int // Dedicated row count error counter
+	ReferenceErrorCount  int // Reference answer syntax error
+	ExecutionErrorCount  int // execution error (pred SQL syntax error)
+	// Below fields deprecated, kept for backward compat
 	OrderErrorCount     int
 	JoinErrorCount      int
 	ConditionErrorCount int
 	OtherErrorCount     int
 	ErrorCounts         []ErrorCount
 
-	// SPJ 统计
-	SPJCaseCount      int // 需要 SPJ 的总案例数
-	SPJCorrectCount   int // SPJ 判定为正确的数量
-	SPJIncorrectCount int // SPJ 判定为错误的数量
+	// SPJ statistics
+	SPJCaseCount      int // Total SPJ cases
+	SPJCorrectCount   int // SPJ correct count
+	SPJIncorrectCount int // SPJ incorrect count
 }

@@ -6,25 +6,25 @@ import (
 	"os"
 )
 
-// DevQuestion dev.json 中的问题结构
+// DevQuestion represents question structure in dev.json
 type DevQuestion struct {
 	DbID    string `json:"db_id"`
 	Query   string `json:"query"`
 	SPJType string `json:"spj_type,omitempty"`
 }
 
-// LoadSPJTags 从 dev.json 加载 SPJ 标签
-// 返回一个 map[question_id]spj_type
+// LoadSPJTags loads SPJ tags from dev.json
+// Returns map[question_id]spj_type
 func LoadSPJTags(devJSONPath string) (map[int]string, error) {
 	data, err := os.ReadFile(devJSONPath)
 	if err != nil {
-		// 如果文件不存在，返回空 map（不是错误）
+		// If file not found, return empty map (not an error)
 		return make(map[int]string), nil
 	}
 
 	var devQuestions []DevQuestion
 	if err := json.Unmarshal(data, &devQuestions); err != nil {
-		return nil, fmt.Errorf("解析 dev.json 失败: %v", err)
+		return nil, fmt.Errorf("failed to parse dev.json: %v", err)
 	}
 
 	spjTags := make(map[int]string)
@@ -35,13 +35,13 @@ func LoadSPJTags(devJSONPath string) (map[int]string, error) {
 	}
 
 	if len(spjTags) > 0 {
-		fmt.Printf("✅ 从 dev.json 加载了 %d 个 SPJ 标签\n", len(spjTags))
-		// 打印前几个 SPJ 标签的索引
+		fmt.Printf("✅ Loaded from dev.json: %d  SPJ tags\n", len(spjTags))
+		// Print first few SPJ tag indices
 		indices := make([]int, 0, len(spjTags))
 		for idx := range spjTags {
 			indices = append(indices, idx)
 		}
-		fmt.Printf("   SPJ 标签索引 (前10个): %v\n", indices[:min(10, len(indices))])
+		fmt.Printf("   SPJ tag indices (first 10): %v\n", indices[:min(10, len(indices))])
 	}
 
 	return spjTags, nil
@@ -54,7 +54,7 @@ func min(a, b int) int {
 	return b
 }
 
-// MergeSPJTags 将 SPJ 标签合并到 InputResult 中
+// MergeSPJTags merges SPJ tags into InputResult
 func MergeSPJTags(results []InputResult, spjTags map[int]string) {
 	mergedCount := 0
 	for i := range results {
@@ -64,6 +64,6 @@ func MergeSPJTags(results []InputResult, spjTags map[int]string) {
 		}
 	}
 	if mergedCount > 0 {
-		fmt.Printf("✅ 成功合并 %d 个 SPJ 标签到 InputResult\n", mergedCount)
+		fmt.Printf("✅ Merged %d SPJ tags into InputResult\n", mergedCount)
 	}
 }

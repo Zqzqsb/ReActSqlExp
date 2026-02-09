@@ -9,13 +9,13 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// PostgreSQLAdapter PostgreSQL适配器
+// PostgreSQLAdapter PostgreSQL adapter
 type PostgreSQLAdapter struct {
 	db     *sql.DB
 	config *PostgreSQLConfig
 }
 
-// PostgreSQLConfig PostgreSQL连接配置
+// PostgreSQLConfig PostgreSQL connection config
 type PostgreSQLConfig struct {
 	Host     string
 	Port     int
@@ -25,7 +25,7 @@ type PostgreSQLConfig struct {
 	SSLMode  string // disable, require, verify-ca, verify-full
 }
 
-// NewPostgreSQLAdapter 创建PostgreSQL适配器
+// NewPostgreSQLAdapter creates PostgreSQL adapter
 func NewPostgreSQLAdapter(config *PostgreSQLConfig) *PostgreSQLAdapter {
 	if config.SSLMode == "" {
 		config.SSLMode = "disable"
@@ -35,7 +35,7 @@ func NewPostgreSQLAdapter(config *PostgreSQLConfig) *PostgreSQLAdapter {
 	}
 }
 
-// Connect 连接数据库
+// Connect connects to database
 func (a *PostgreSQLAdapter) Connect(ctx context.Context) error {
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		a.config.Host,
@@ -51,7 +51,7 @@ func (a *PostgreSQLAdapter) Connect(ctx context.Context) error {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// 测试连接
+	// Test connection
 	if err := db.PingContext(ctx); err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
@@ -60,7 +60,7 @@ func (a *PostgreSQLAdapter) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Close 关闭连接
+// Close closes connection
 func (a *PostgreSQLAdapter) Close() error {
 	if a.db != nil {
 		return a.db.Close()
@@ -68,7 +68,7 @@ func (a *PostgreSQLAdapter) Close() error {
 	return nil
 }
 
-// ExecuteQuery 执行查询
+// ExecuteQuery executes query
 func (a *PostgreSQLAdapter) ExecuteQuery(ctx context.Context, query string) (*QueryResult, error) {
 	start := time.Now()
 
@@ -77,17 +77,17 @@ func (a *PostgreSQLAdapter) ExecuteQuery(ctx context.Context, query string) (*Qu
 		return &QueryResult{
 			Error:         err.Error(),
 			ExecutionTime: time.Since(start).Milliseconds(),
-		}, err // 返回错误，让调用方能正确处理
+		}, err // Return error for caller to handle
 	}
 	defer rows.Close()
 
-	// 获取列名
+	// Get column names
 	columns, err := rows.Columns()
 	if err != nil {
 		return nil, err
 	}
 
-	// 读取数据
+	// Read data
 	var result []map[string]interface{}
 	for rows.Next() {
 		values := make([]interface{}, len(columns))
@@ -124,12 +124,12 @@ func (a *PostgreSQLAdapter) ExecuteQuery(ctx context.Context, query string) (*Qu
 	}, nil
 }
 
-// GetDatabaseType 获取数据库类型
+// GetDatabaseType gets database type
 func (a *PostgreSQLAdapter) GetDatabaseType() string {
 	return "PostgreSQL"
 }
 
-// GetDatabaseVersion 获取数据库版本
+// GetDatabaseVersion gets database version
 func (a *PostgreSQLAdapter) GetDatabaseVersion(ctx context.Context) (string, error) {
 	result, err := a.ExecuteQuery(ctx, "SELECT version() as version")
 	if err != nil {

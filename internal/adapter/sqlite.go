@@ -9,32 +9,32 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// SQLiteAdapter SQLite适配器
+// SQLiteAdapter SQLite adapter
 type SQLiteAdapter struct {
 	db     *sql.DB
 	config *SQLiteConfig
 }
 
-// SQLiteConfig SQLite连接配置
+// SQLiteConfig SQLite connection config
 type SQLiteConfig struct {
-	FilePath string // 数据库文件路径，":memory:" 表示内存数据库
+	FilePath string // DB file path, ":memory:" for in-memory
 }
 
-// NewSQLiteAdapter 创建SQLite适配器
+// NewSQLiteAdapter creates SQLite adapter
 func NewSQLiteAdapter(config *SQLiteConfig) *SQLiteAdapter {
 	return &SQLiteAdapter{
 		config: config,
 	}
 }
 
-// Connect 连接数据库
+// Connect connects to database
 func (a *SQLiteAdapter) Connect(ctx context.Context) error {
 	db, err := sql.Open("sqlite3", a.config.FilePath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// 测试连接
+	// Test connection
 	if err := db.PingContext(ctx); err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
@@ -43,7 +43,7 @@ func (a *SQLiteAdapter) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Close 关闭连接
+// Close closes connection
 func (a *SQLiteAdapter) Close() error {
 	if a.db != nil {
 		return a.db.Close()
@@ -51,7 +51,7 @@ func (a *SQLiteAdapter) Close() error {
 	return nil
 }
 
-// ExecuteQuery 执行查询
+// ExecuteQuery executes query
 func (a *SQLiteAdapter) ExecuteQuery(ctx context.Context, query string) (*QueryResult, error) {
 	start := time.Now()
 
@@ -60,17 +60,17 @@ func (a *SQLiteAdapter) ExecuteQuery(ctx context.Context, query string) (*QueryR
 		return &QueryResult{
 			Error:         err.Error(),
 			ExecutionTime: time.Since(start).Milliseconds(),
-		}, err // 返回错误，而不是 nil
+		}, err // Return error, not nil
 	}
 	defer rows.Close()
 
-	// 获取列名
+	// Get column names
 	columns, err := rows.Columns()
 	if err != nil {
 		return nil, err
 	}
 
-	// 读取数据
+	// Read data
 	var result []map[string]interface{}
 	for rows.Next() {
 		values := make([]interface{}, len(columns))
@@ -107,12 +107,12 @@ func (a *SQLiteAdapter) ExecuteQuery(ctx context.Context, query string) (*QueryR
 	}, nil
 }
 
-// GetDatabaseType 获取数据库类型
+// GetDatabaseType gets database type
 func (a *SQLiteAdapter) GetDatabaseType() string {
 	return "SQLite"
 }
 
-// GetDatabaseVersion 获取数据库版本
+// GetDatabaseVersion gets database version
 func (a *SQLiteAdapter) GetDatabaseVersion(ctx context.Context) (string, error) {
 	result, err := a.ExecuteQuery(ctx, "SELECT sqlite_version() as version")
 	if err != nil {
