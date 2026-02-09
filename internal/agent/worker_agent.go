@@ -76,7 +76,9 @@ func NewWorkerAgent(
 
 // Execute 执行分析任务（两阶段）
 func (a *WorkerAgent) Execute(ctx context.Context) error {
-	fmt.Printf("\n[%s] Starting analysis of table '%s'...\n", a.id, a.tableName)
+	if !a.sharedCtx.Quiet {
+		fmt.Printf("\n[%s] Starting analysis of table '%s'...\n", a.id, a.tableName)
+	}
 
 	// 标记任务开始
 	if err := a.sharedCtx.StartTask(a.taskID); err != nil {
@@ -84,22 +86,30 @@ func (a *WorkerAgent) Execute(ctx context.Context) error {
 	}
 
 	// ========== 阶段1：收集基础静态信息 ==========
-	fmt.Printf("\n[%s] Phase 1: Collecting basic metadata...\n", a.id)
+	if !a.sharedCtx.Quiet {
+		fmt.Printf("\n[%s] Phase 1: Collecting basic metadata...\n", a.id)
+	}
 	if err := a.collectBasicMetadata(ctx); err != nil {
 		a.sharedCtx.FailTask(a.taskID, err)
 		return fmt.Errorf("phase 1 failed: %w", err)
 	}
 
 	// ========== 阶段2：ReAct 探索 Rich Context ==========
-	fmt.Printf("\n[%s] Phase 2: Exploring rich context...\n", a.id)
+	if !a.sharedCtx.Quiet {
+		fmt.Printf("\n[%s] Phase 2: Exploring rich context...\n", a.id)
+	}
 	if err := a.exploreRichContext(ctx); err != nil {
 		return err
 	}
 
 	// Phase 3: 生成表描述（基于已收集的信息）
-	fmt.Printf("\n[%s] Phase 3: Generating table description...\n", a.id)
+	if !a.sharedCtx.Quiet {
+		fmt.Printf("\n[%s] Phase 3: Generating table description...\n", a.id)
+	}
 	if err := a.generateTableDescription(ctx); err != nil {
+	if !a.sharedCtx.Quiet {
 		fmt.Printf("[%s] Warning: Failed to generate description: %v\n", a.id, err)
+	}
 		// 不中断流程，描述生成失败不影响整体
 	}
 
@@ -108,7 +118,9 @@ func (a *WorkerAgent) Execute(ctx context.Context) error {
 		"table": a.tableName,
 	})
 
-	fmt.Printf("\n[%s] Analysis complete for '%s'\n", a.id, a.tableName)
+	if !a.sharedCtx.Quiet {
+		fmt.Printf("\n[%s] Analysis complete for '%s'\n", a.id, a.tableName)
+	}
 	return nil
 }
 
@@ -275,7 +287,9 @@ Execute queries one by one and collect all information.`
 }
 
 func (t *WorkerSQLTool) Call(ctx context.Context, input string) (string, error) {
-	fmt.Printf("\n[%s] SQL: %s\n", t.agentID, input)
+	if !t.sharedCtx.Quiet {
+		fmt.Printf("\n[%s] SQL: %s\n", t.agentID, input)
+	}
 
 	// 执行SQL
 	result, err := t.adapter.ExecuteQuery(ctx, input)
@@ -345,7 +359,11 @@ func (a *WorkerAgent) generateTableDescription(ctx context.Context) error {
 	// 获取表的元数据和 Rich Context
 	table, exists := a.sharedCtx.Tables[a.tableName]
 	if !exists {
-		return fmt.Errorf("table not found: %s", a.tableName)
+		// Table metadata may not have been built yet, skip description
+	if !a.sharedCtx.Quiet {
+		fmt.Printf("[%s] Warning: table %s not found in Tables map, skipping description\n", a.id, a.tableName)
+	}
+		return nil
 	}
 
 	// 构建 Prompt
@@ -385,7 +403,9 @@ Description:`
 		return err
 	}
 
-	fmt.Printf("[%s] Generated description: %s\n", a.id, description)
+	if !a.sharedCtx.Quiet {
+		fmt.Printf("[%s] Generated description: %s\n", a.id, description)
+	}
 	return nil
 }
 

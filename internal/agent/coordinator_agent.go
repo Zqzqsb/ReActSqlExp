@@ -60,7 +60,9 @@ func NewCoordinatorAgent(
 
 // Execute 执行协调任务
 func (a *CoordinatorAgent) Execute(ctx context.Context) error {
-	fmt.Printf("\n[%s] Starting coordination...\n", a.id)
+	if !a.sharedCtx.Quiet {
+		fmt.Printf("\n[%s] Starting coordination...\n", a.id)
+	}
 
 	// 根据数据库类型选择查询语句
 	var discoverQuery string
@@ -99,7 +101,9 @@ Start by discovering tables.`, a.sharedCtx.DatabaseName, a.adapter.GetDatabaseTy
 		return fmt.Errorf("coordinator failed: %w", err)
 	}
 
-	fmt.Printf("\n[%s] Coordination complete: %v\n", a.id, result)
+	if !a.sharedCtx.Quiet {
+		fmt.Printf("\n[%s] Coordination complete: %v\n", a.id, result)
+	}
 	return nil
 }
 
@@ -125,7 +129,9 @@ After discovering tables, register tasks for each table in the shared context.`
 }
 
 func (t *CoordinatorSQLTool) Call(ctx context.Context, input string) (string, error) {
-	fmt.Printf("\n[%s] SQL: %s\n", t.agentID, input)
+	if !t.sharedCtx.Quiet {
+		fmt.Printf("\n[%s] SQL: %s\n", t.agentID, input)
+	}
 
 	// 执行SQL
 	result, err := t.adapter.ExecuteQuery(ctx, input)

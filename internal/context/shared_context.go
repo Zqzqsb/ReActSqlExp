@@ -83,6 +83,9 @@ type SharedContext struct {
 
 	// 并发控制
 	mu sync.RWMutex `json:"-"`
+
+	// Quiet suppresses verbose log output (used by gen_all_dev multi-progress mode)
+	Quiet bool `json:"-"`
 }
 
 // BusinessNote Rich Context 条目（包含内容和过期时间）
@@ -244,7 +247,9 @@ func (c *SharedContext) LoadSchemaFromFile(schemaPath string) error {
 		c.Tables[tableName] = table
 	}
 
-	fmt.Printf("[Context] Loaded schema from file: %d tables\n", len(parsedTables))
+	if !c.Quiet {
+		fmt.Printf("[Context] Loaded schema from file: %d tables\n", len(parsedTables))
+	}
 	return nil
 }
 
@@ -264,7 +269,9 @@ func (c *SharedContext) RegisterTask(taskID, agentID, description string) error 
 		Status:      TaskRegistered,
 	}
 
-	fmt.Printf("[Context] Task registered: %s by %s\n", taskID, agentID)
+	if !c.Quiet {
+		fmt.Printf("[Context] Task registered: %s by %s\n", taskID, agentID)
+	}
 	return nil
 }
 
@@ -285,7 +292,9 @@ func (c *SharedContext) StartTask(taskID string) error {
 	task.Status = TaskRunning
 	task.StartTime = time.Now()
 
-	fmt.Printf("[Context] Task started: %s\n", taskID)
+	if !c.Quiet {
+		fmt.Printf("[Context] Task started: %s\n", taskID)
+	}
 	return nil
 }
 
@@ -304,7 +313,9 @@ func (c *SharedContext) CompleteTask(taskID string, result map[string]interface{
 	task.Result = result
 
 	duration := task.EndTime.Sub(task.StartTime)
-	fmt.Printf("[Context] Task completed: %s (took %v)\n", taskID, duration)
+	if !c.Quiet {
+		fmt.Printf("[Context] Task completed: %s (took %v)\n", taskID, duration)
+	}
 	return nil
 }
 
@@ -322,7 +333,9 @@ func (c *SharedContext) FailTask(taskID string, err error) error {
 	task.EndTime = time.Now()
 	task.Error = err.Error()
 
-	fmt.Printf("[Context] Task failed: %s - %v\n", taskID, err)
+	if !c.Quiet {
+		fmt.Printf("[Context] Task failed: %s - %v\n", taskID, err)
+	}
 	return nil
 }
 
@@ -341,7 +354,15 @@ func (c *SharedContext) SetTableRichContext(tableName, key, content, expiresAt s
 
 	table, exists := c.Tables[tableName]
 	if !exists {
-		return fmt.Errorf("table %s not found", tableName)
+		// Auto-create table entry if not yet registered (e.g. during Phase 1 ReAct loop)
+		table = &TableMetadata{
+			Name:        tableName,
+			Columns:     []ColumnMetadata{},
+			Indexes:     []IndexMetadata{},
+			ForeignKeys: []ForeignKeyMetadata{},
+			RichContext: make(map[string]RichContextValue),
+		}
+		c.Tables[tableName] = table
 	}
 
 	if table.RichContext == nil {
@@ -364,7 +385,15 @@ func (c *SharedContext) SetTableDescription(tableName, description string) error
 
 	table, exists := c.Tables[tableName]
 	if !exists {
-		return fmt.Errorf("table %s not found", tableName)
+		// Auto-create table entry if not yet registered
+		table = &TableMetadata{
+			Name:        tableName,
+			Columns:     []ColumnMetadata{},
+			Indexes:     []IndexMetadata{},
+			ForeignKeys: []ForeignKeyMetadata{},
+			RichContext: make(map[string]RichContextValue),
+		}
+		c.Tables[tableName] = table
 	}
 
 	table.Description = description
@@ -670,8 +699,10 @@ func (c *SharedContext) BuildTableMetadata(tableName string) {
 	}
 
 	c.Tables[tableName] = table
-	fmt.Printf("[Context] Built metadata for table: %s (%d columns, %d indexes, %d rows)\n",
-		tableName, len(table.Columns), len(table.Indexes), table.RowCount)
+	if !c.Quiet {
+		fmt.Printf("[Context] Built metadata for table: %s (%d columns, %d indexes, %d rows)\n",
+			tableName, len(table.Columns), len(table.Indexes), table.RowCount)
+	}
 }
 
 // buildTablesFromTempData 从临时数据构建Tables结构
@@ -681,7 +712,9 @@ func (c *SharedContext) buildTablesFromTempData() {
 	for k := range c.tempData {
 		keys = append(keys, k)
 	}
-	fmt.Printf("[Context] Building tables from tempData, keys: %v\n", keys)
+	if !c.Quiet {
+		fmt.Printf("[Context] Building tables from tempData, keys: %v\n", keys)
+	}
 
 	// 提取所有表名
 	tableNames := make(map[string]bool)
@@ -698,7 +731,9 @@ func (c *SharedContext) buildTablesFromTempData() {
 		}
 	}
 
-	fmt.Printf("[Context] Found tables: %v\n", tableNames)
+	if !c.Quiet {
+		fmt.Printf("[Context] Found tables: %v\n", tableNames)
+	}
 
 	// 为每个表构建metadata
 	for tableName := range tableNames {
