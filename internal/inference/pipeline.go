@@ -95,6 +95,15 @@ func (p *Pipeline) Reset() {
 	p.stepCallback = nil
 }
 
+// SetLogger replaces the pipeline logger and propagates it to sub-components
+// (e.g. SchemaLinker) so all log output is routed to the same file.
+func (p *Pipeline) SetLogger(logger *InferenceLogger) {
+	p.Logger = logger
+	if linker, ok := p.schemaLinker.(*LLMSchemaLinker); ok {
+		linker.logger = logger
+	}
+}
+
 // SetStepCallback sets the callback function for streaming ReAct steps
 func (p *Pipeline) SetStepCallback(callback StepCallback) {
 	p.stepCallback = callback

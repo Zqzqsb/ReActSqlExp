@@ -762,7 +762,7 @@ func evaluateSpider(
 
 	pipeline := inference.NewPipeline(llm, dbAdapter, pipelineConfig)
 	if logger != nil {
-		pipeline.Logger = logger
+pipeline.SetLogger(logger)
 	}
 	inferResult, err := pipeline.Execute(ctx, example.Question)
 	if err != nil {
@@ -857,7 +857,7 @@ func evaluateBird(
 
 	pipeline := inference.NewPipeline(llm, dbAdapter, pipelineConfig)
 	if logger != nil {
-		pipeline.Logger = logger
+pipeline.SetLogger(logger)
 	}
 	inferResult, err := pipeline.Execute(ctx, question)
 	if err != nil {
