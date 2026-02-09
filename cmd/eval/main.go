@@ -66,12 +66,12 @@ type EvalResult struct {
 
 // EvalMode predefined evaluation mode
 type EvalMode struct {
-	Name           string
-	Description    string
-	UseReact       bool
-	UseRichContext bool
-	ReactLinking   bool
-	EnableClarify  string
+	Name            string
+	Description     string
+	UseReact        bool
+	UseRichContext  bool
+	ReactLinking    bool
+	EnableClarify   string
 	EnableProofread bool
 }
 
@@ -467,6 +467,31 @@ func main() {
 	jsonFile.WriteString("[\n")
 	var jsonTailPos int64 // track position before the closing ']' for overwrite
 
+	// ── Step 10: Redirect stdout to log.txt ──
+	logTxtPath := filepath.Join(*outputDir, "log.txt")
+	logTxtFile, err := os.Create(logTxtPath)
+	if err != nil {
+		log.Fatalf("Failed to create log.txt: %v", err)
+	}
+	defer logTxtFile.Close()
+
+	// Save original stdout
+	origStdout := os.Stdout
+	// Redirect stdout to log.txt
+	os.Stdout = logTxtFile
+
+	// Restore stdout on exit
+	defer func() {
+		os.Stdout = origStdout
+	}()
+
+	// Print confirmation to original stdout (terminal)
+	fmt.Fprintln(origStdout, "")
+	fmt.Fprintln(origStdout, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Fprintf(origStdout, "📝 Output redirected to: %s\n", logTxtPath)
+	fmt.Fprintln(origStdout, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Fprintln(origStdout, "")
+
 	// Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -484,10 +509,15 @@ func main() {
 		// Flush and close inference log
 		inferenceLogFile.Sync()
 		inferenceLogFile.Close()
+		// Flush and close log.txt
+		logTxtFile.Sync()
+		logTxtFile.Close()
+		// Restore stdout
+		os.Stdout = origStdout
 		os.Exit(0)
 	}()
 
-	// ── Step 10: Run evaluation ──
+	// ── Step 11: Run evaluation ──
 	var (
 		successCount  int
 		totalTime     float64
@@ -657,38 +687,46 @@ func main() {
 
 	// JSON array is already properly closed after each iteration (crash-safe)
 
-	// ── Step 11: Print summary ──
-	fmt.Println()
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("📊 Evaluation Summary")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("Benchmark: %s | Mode: %s | Model: %s\n", *benchmark, selectedMode.Name, modelDisplayName)
-	fmt.Printf("Total: %d\n", totalCount)
-	fmt.Printf("Success: %d (%.1f%%)\n", successCount, float64(successCount)/float64(totalCount)*100)
-	fmt.Printf("Failed: %d\n", totalCount-successCount)
+	// ── Step 11: Print summary (to both log.txt and terminal) ──
+	// Helper to print to both log file and terminal
+	both := func(format string, a ...interface{}) {
+		fmt.Printf(format, a...)
+		fmt.Fprintf(origStdout, format, a...)
+	}
+
+	both("\n")
+	both("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	both("📊 Evaluation Summary\n")
+	both("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	both("Benchmark: %s | Mode: %s | Model: %s\n", *benchmark, selectedMode.Name, modelDisplayName)
+	both("Total: %d\n", totalCount)
+	both("Success: %d (%.1f%%)\n", successCount, float64(successCount)/float64(totalCount)*100)
+	both("Failed: %d\n", totalCount-successCount)
 	if totalCount > 0 {
-		fmt.Printf("Avg Time: %.2fs\n", totalTime/float64(totalCount))
-		fmt.Printf("Avg LLM Calls: %.1f\n", float64(totalLLMCalls)/float64(totalCount))
-		fmt.Printf("Total Tokens: %d (Avg: %d per query)\n", totalTokens, totalTokens/totalCount)
+		both("Avg Time: %.2fs\n", totalTime/float64(totalCount))
+		both("Avg LLM Calls: %.1f\n", float64(totalLLMCalls)/float64(totalCount))
+		both("Total Tokens: %d (Avg: %d per query)\n", totalTokens, totalTokens/totalCount)
 	}
 	if totalClarify > 0 {
-		fmt.Printf("Total Clarifications: %d (%.1f%%)\n", totalClarify, float64(totalClarify)/float64(totalCount)*100)
+		both("Total Clarifications: %d (%.1f%%)\n", totalClarify, float64(totalClarify)/float64(totalCount)*100)
 	}
 
 	// Get absolute path for output dir
 	absOutputDir, _ := filepath.Abs(*outputDir)
 
-	fmt.Printf("\n✅ Results saved to: %s/\n", *outputDir)
-	fmt.Printf("  - results.json     (detailed results with ReAct steps)\n")
-	fmt.Printf("  - predict.sql      (predicted SQL for official evaluation)\n")
-	fmt.Printf("  - inference.log    (compressed summary log)\n")
-	fmt.Printf("  - logs/            (per-example full logs, %d files)\n", totalCount)
-	fmt.Println()
-	fmt.Println("📂 Quick access:")
-	fmt.Printf("  cd %s\n", absOutputDir)
-	fmt.Printf("  cat inference.log                    # overview\n")
-	fmt.Printf("  cat logs/0001_*.log                  # single example\n")
-	fmt.Printf("  grep '❌' inference.log              # failed examples\n")
+	both("\n✅ Results saved to: %s/\n", *outputDir)
+	both("  - results.json     (detailed results with ReAct steps)\n")
+	both("  - predict.sql      (predicted SQL for official evaluation)\n")
+	both("  - inference.log    (compressed summary log)\n")
+	both("  - log.txt          (full inference output)\n")
+	both("  - logs/            (per-example full logs, %d files)\n", totalCount)
+	both("\n")
+	both("📂 Quick access:\n")
+	both("  cd %s\n", absOutputDir)
+	both("  cat inference.log                    # overview\n")
+	both("  cat logs/0001_*.log                  # single example\n")
+	both("  grep '❌' inference.log              # failed examples\n")
+	both("  tail -f log.txt                      # watch live output\n")
 }
 
 // ─────────────────────────────────────────────────────
@@ -762,7 +800,7 @@ func evaluateSpider(
 
 	pipeline := inference.NewPipeline(llm, dbAdapter, pipelineConfig)
 	if logger != nil {
-pipeline.SetLogger(logger)
+		pipeline.SetLogger(logger)
 	}
 	inferResult, err := pipeline.Execute(ctx, example.Question)
 	if err != nil {
@@ -857,7 +895,7 @@ func evaluateBird(
 
 	pipeline := inference.NewPipeline(llm, dbAdapter, pipelineConfig)
 	if logger != nil {
-pipeline.SetLogger(logger)
+		pipeline.SetLogger(logger)
 	}
 	inferResult, err := pipeline.Execute(ctx, question)
 	if err != nil {
