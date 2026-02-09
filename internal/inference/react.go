@@ -75,15 +75,18 @@ func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt st
 	sqlTool := &SQLTool{
 		adapter:   p.adapter,
 		useDryRun: p.config.UseDryRun,
+		logger:    p.Logger,
 	}
 
 	clarifyTool := &ClarifyTool{
 		resultFields:            p.config.ResultFields,
 		resultFieldsDescription: p.config.ResultFieldsDescription,
+		logger:                  p.Logger,
 	}
 
 	// Create verify_sql tool
 	verifySQLTool := NewVerifySQLTool(p.adapter, p.config.DBType)
+	verifySQLTool.logger = p.Logger
 
 	// Create ReAct Agent
 	var toolsList []tools.Tool
@@ -95,6 +98,7 @@ func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt st
 
 	if p.config.EnableProofread {
 		updateTool := NewUpdateRichContextTool(p.config.DBName, p.config.DBType)
+		updateTool.logger = p.Logger
 		toolsList = append(toolsList, updateTool)
 	}
 
@@ -429,6 +433,7 @@ type SQLTool struct {
 	adapter        adapter.DBAdapter
 	useDryRun      bool
 	ExecutionCount int
+	logger         *InferenceLogger
 }
 
 func (t *SQLTool) Name() string {
@@ -449,8 +454,16 @@ Output: Query results`
 func (t *SQLTool) Call(ctx context.Context, input string) (string, error) {
 	t.ExecutionCount++
 
-	fmt.Printf("\n🔧 Tool Call [execute_sql] #%d:\n", t.ExecutionCount)
-	fmt.Printf("Input SQL: %s\n", input)
+	logf := func(format string, a ...interface{}) {
+		if t.logger != nil {
+			t.logger.Printf(format, a...)
+		} else {
+			fmt.Printf(format, a...)
+		}
+	}
+
+	logf("\n🔧 Tool Call [execute_sql] #%d:\n", t.ExecutionCount)
+	logf("Input SQL: %s\n", input)
 
 	sql := strings.TrimSpace(input)
 
@@ -487,7 +500,7 @@ func (t *SQLTool) Call(ctx context.Context, input string) (string, error) {
 		}
 	}
 
-	fmt.Printf("Output: %s\n", output)
+	logf("Output: %s\n", output)
 
 	return output, nil
 }
@@ -497,6 +510,7 @@ type ClarifyTool struct {
 	resultFields            []string
 	resultFieldsDescription string
 	ClarifyCount            int
+	logger                  *InferenceLogger
 }
 
 func (t *ClarifyTool) Name() string {
@@ -513,7 +527,15 @@ Output: List of required fields or description of required fields`
 func (t *ClarifyTool) Call(ctx context.Context, input string) (string, error) {
 	t.ClarifyCount++
 
-	fmt.Printf("\n🔔 Clarification requested: %s\n", input)
+	logf := func(format string, a ...interface{}) {
+		if t.logger != nil {
+			t.logger.Printf(format, a...)
+		} else {
+			fmt.Printf(format, a...)
+		}
+	}
+
+	logf("\n🔔 Clarification requested: %s\n", input)
 
 	// Return field list + descriptions
 	fieldsStr := strings.Join(t.resultFields, ", ")
@@ -521,7 +543,7 @@ func (t *ClarifyTool) Call(ctx context.Context, input string) (string, error) {
 		fieldsStr,
 		t.resultFieldsDescription)
 
-	fmt.Printf("📋 Clarification response: %s\n\n", response)
+	logf("📋 Clarification response: %s\n\n", response)
 
 	return response, nil
 }

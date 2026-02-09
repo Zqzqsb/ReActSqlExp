@@ -465,6 +465,7 @@ func main() {
 
 	// Write JSON array start
 	jsonFile.WriteString("[\n")
+	var jsonTailPos int64 // track position before the closing ']' for overwrite
 
 	// Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -472,9 +473,17 @@ func main() {
 	go func() {
 		<-sigChan
 		fmt.Println("\n⚠️  Received interrupt signal, closing files gracefully...")
-		jsonFile.WriteString("\n]\n")
+		// Close per-example log if still open
+		evalLogger.CloseFile()
+		// JSON is already valid (closed with ] after each write), just sync & close
+		jsonFile.Sync()
 		jsonFile.Close()
+		// Flush and close SQL file
+		sqlFile.Sync()
 		sqlFile.Close()
+		// Flush and close inference log
+		inferenceLogFile.Sync()
+		inferenceLogFile.Close()
 		os.Exit(0)
 	}()
 
@@ -560,8 +569,10 @@ func main() {
 		totalTokens += result.TotalTokens
 		totalClarify += result.ClarifyCount
 
-		// Incremental JSON write
+		// Incremental JSON write (always keep file as valid JSON)
 		if i > 0 {
+			// Seek back to overwrite the previous closing '\n]\n'
+			jsonFile.Seek(jsonTailPos, 0)
 			jsonFile.WriteString(",\n")
 		}
 		jsonData, err := json.MarshalIndent(result, "  ", "  ")
@@ -569,10 +580,12 @@ func main() {
 			log.Printf("Failed to marshal result: %v", err)
 		} else {
 			jsonFile.WriteString("  " + string(jsonData))
+			jsonTailPos, _ = jsonFile.Seek(0, 1) // remember position before ']'
+			jsonFile.WriteString("\n]\n")
 			jsonFile.Sync()
 		}
 
-		// Incremental SQL write
+		// Incremental SQL write (with Sync for crash safety)
 		sql := result.GeneratedSQL
 		if sql == "" {
 			sql = "SELECT 1"
@@ -583,6 +596,7 @@ func main() {
 		sql = strings.ReplaceAll(sql, "\r", " ")
 		sql = strings.Join(strings.Fields(sql), " ")
 		fmt.Fprintf(sqlFile, "%s\t%s\n", sql, result.DbID)
+		sqlFile.Sync()
 
 		// Print result
 		fmt.Printf("Generated: %s\n", result.GeneratedSQL)
@@ -641,8 +655,7 @@ func main() {
 		}
 	}
 
-	// Close JSON array
-	jsonFile.WriteString("\n]\n")
+	// JSON array is already properly closed after each iteration (crash-safe)
 
 	// ── Step 11: Print summary ──
 	fmt.Println()

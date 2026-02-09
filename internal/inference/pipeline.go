@@ -218,8 +218,12 @@ func (p *Pipeline) Execute(ctx context.Context, query string) (*Result, error) {
 			IncludeStats:       true,
 		}
 		contextPrompt = p.context.ExportToCompactPrompt(opts)
-		// Print summary only, not full Rich Context
+		// Print summary to stdout + file
 		p.Logger.Printf("📚 Using Rich Context for %d tables\n", len(tables))
+		// Dump full Rich Context content to log file only (for post-analysis)
+		p.Logger.FileOnly("\n┌─ Rich Context Content ───────────────────────────────────\n")
+		p.Logger.FileOnly("%s", contextPrompt)
+		p.Logger.FileOnly("└──────────────────────────────────────────────────────────\n\n")
 	} else {
 		// Use basic Schema (table+column names only)
 		contextPrompt = p.buildBasicSchema(ctx, tables)

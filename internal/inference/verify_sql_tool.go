@@ -13,6 +13,7 @@ import (
 type VerifySQLTool struct {
 	adapter adapter.DBAdapter
 	dbType  string
+	logger  *InferenceLogger
 }
 
 // Name returns tool name
@@ -40,13 +41,21 @@ Use this tool BEFORE giving your final answer to ensure SQL correctness.`
 func (t *VerifySQLTool) Call(ctx context.Context, input string) (string, error) {
 	sql := strings.TrimSpace(input)
 
-	fmt.Printf("\n🔍 Tool Call [verify_sql]:\n")
-	fmt.Printf("Input SQL: %s\n", sql)
+	logf := func(format string, a ...interface{}) {
+		if t.logger != nil {
+			t.logger.Printf(format, a...)
+		} else {
+			fmt.Printf(format, a...)
+		}
+	}
+
+	logf("\n🔍 Tool Call [verify_sql]:\n")
+	logf("Input SQL: %s\n", sql)
 
 	// 1. Quick static check (avoid obvious errors)
 	if err := t.quickCheck(sql); err != nil {
 		result := fmt.Sprintf("❌ SQL validation failed (static check):\n%v\n\nPlease fix the error and try again.", err)
-		fmt.Printf("Output: %s\n", result)
+		logf("Output: %s\n", result)
 		return result, nil
 	}
 
@@ -54,7 +63,7 @@ func (t *VerifySQLTool) Call(ctx context.Context, input string) (string, error) 
 	data, err := t.adapter.ExecuteQuery(ctx, sql)
 	if err != nil {
 		result := fmt.Sprintf("❌ SQL validation failed (database check):\n%v\n\nPlease fix the error and try again.", err)
-		fmt.Printf("Output: %s\n", result)
+		logf("Output: %s\n", result)
 		return result, nil
 	}
 
@@ -76,7 +85,7 @@ func (t *VerifySQLTool) Call(ctx context.Context, input string) (string, error) 
 		result += "\n" + strings.Join(warnings, "\n")
 	}
 
-	fmt.Printf("Output: %s\n", result)
+	logf("Output: %s\n", result)
 	return result, nil
 }
 

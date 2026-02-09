@@ -84,11 +84,14 @@ If no tables are needed, output: none
 
 Output:`, schemaDesc.String(), query)
 
-	// Skip full Schema Linking prompt print
+	// Print summary to stdout + dump full prompt to log file
 	if l.logger != nil {
-		l.logger.Println("🔍 Schema Linking...")
+		l.logger.Println("🔍 Schema Linking (One-shot)...")
+		l.logger.FileOnly("\n┌─ Schema Linking Prompt ──────────────────────────────────\n")
+		l.logger.FileOnly("%s", prompt)
+		l.logger.FileOnly("└──────────────────────────────────────────────────────────\n\n")
 	} else {
-		fmt.Println("🔍 Schema Linking...")
+		fmt.Println("🔍 Schema Linking (One-shot)...")
 	}
 
 	// Call LLM with backoff retry
@@ -122,6 +125,13 @@ Output:`, schemaDesc.String(), query)
 	}
 
 	response = strings.TrimSpace(response)
+
+	// Log LLM response to file
+	if l.logger != nil {
+		l.logger.FileOnly("┌─ Schema Linking Response ────────────────────────────────\n")
+		l.logger.FileOnly("%s\n", response)
+		l.logger.FileOnly("└──────────────────────────────────────────────────────────\n\n")
+	}
 
 	// Record tokens
 	if l.tokenRecorder != nil {
@@ -209,6 +219,7 @@ func (l *LLMSchemaLinker) linkWithReact(ctx context.Context, query string, allTa
 	sqlTool := &SQLTool{
 		adapter:   l.adapter,
 		useDryRun: false,
+		logger:    l.logger,
 	}
 
 	// Create handler to collect ReAct steps
@@ -297,7 +308,12 @@ IMPORTANT:
 
 Output:`, claimedMaxIterations, schemaDesc.String(), query)
 
-	// Execute ReAct
+	// Execute ReAct — dump prompt to file for post-analysis
+	if l.logger != nil {
+		l.logger.FileOnly("\n┌─ Schema Linking ReAct Prompt ──────────────────────────────────────\n")
+		l.logger.FileOnly("%s", prompt)
+		l.logger.FileOnly("└──────────────────────────────────────────────────────────────────\n\n")
+	}
 	agentResult, err := executor.Call(ctx, map[string]any{"input": prompt})
 	if err != nil {
 		return nil, []ReActStep{}, err

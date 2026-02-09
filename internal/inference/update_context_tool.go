@@ -14,6 +14,7 @@ import (
 type UpdateRichContextTool struct {
 	dbName      string
 	contextPath string
+	logger      *InferenceLogger
 }
 
 // Name returns tool name
@@ -149,12 +150,26 @@ func (t *UpdateRichContextTool) Call(ctx context.Context, input string) (string,
 		updateInput.Reason,
 	)
 
-	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("📝 Rich Context Updated:")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println(result)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	logf := func(format string, a ...interface{}) {
+		if t.logger != nil {
+			t.logger.Printf(format, a...)
+		} else {
+			fmt.Printf(format, a...)
+		}
+	}
+	logln := func(a ...interface{}) {
+		if t.logger != nil {
+			t.logger.Println(a...)
+		} else {
+			fmt.Println(a...)
+		}
+	}
 
+	logln("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	logln("📝 Rich Context Updated:")
+	logln("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	logf("%s\n", result)
+	logln("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	return result, nil
 }
 
