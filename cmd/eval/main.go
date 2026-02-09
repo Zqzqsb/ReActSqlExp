@@ -704,8 +704,8 @@ func evaluateSpider(
 	mode EvalMode,
 	logMode string,
 	logger *inference.InferenceLogger,
-) EvalResult {
-	result := EvalResult{
+) (result EvalResult) {
+	result = EvalResult{
 		DbID:     example.DbID,
 		Question: example.Question,
 		GoldSQL:  example.Query,
@@ -793,8 +793,8 @@ func evaluateBird(
 	mode EvalMode,
 	logMode string,
 	logger *inference.InferenceLogger,
-) EvalResult {
-	result := EvalResult{
+) (result EvalResult) {
+	result = EvalResult{
 		QuestionID: example.QuestionID,
 		DbID:       example.DbID,
 		Question:   example.Question,
