@@ -13,34 +13,17 @@ import (
 
 // LoadInputFile 从文件加载输入结果
 func LoadInputFile(filePath string) ([]InputResult, error) {
-	fmt.Printf("LoadInputFile: %s\n", filePath)
-	fmt.Printf("是否以.json结尾: %v\n", strings.HasSuffix(filePath, ".json"))
-	fmt.Printf("是否以.jsonl结尾: %v\n", strings.HasSuffix(filePath, ".jsonl"))
-
-	// 检查文件扩展名，判断是Spider格式还是原格式
+	// Check file extension to determine format
 	if strings.HasSuffix(filePath, ".json") && !strings.HasSuffix(filePath, ".jsonl") {
-		// Spider格式：JSON数组
-		fmt.Println("检测到Spider格式，调用LoadSpiderResultFile")
 		return LoadSpiderResultFile(filePath)
 	}
 
-	fmt.Println("使用JSONL格式加载")
-
-	// 原格式：JSONL
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("打开文件失败: %v", err)
-	}
-	defer file.Close()
-
-	// 读取文件内容进行调试
+	// JSONL format
 	fileContent, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("读取文件内容失败: %v", err)
+		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
-	fmt.Printf("文件大小: %d 字节\n", len(fileContent))
 
-	// 按行读取JSONL文件
 	var results []InputResult
 	scanner := bufio.NewScanner(strings.NewReader(string(fileContent)))
 
@@ -49,39 +32,23 @@ func LoadInputFile(filePath string) ([]InputResult, error) {
 	buf := make([]byte, maxCapacity)
 	scanner.Buffer(buf, maxCapacity)
 
-	lineNum := 0
 	for scanner.Scan() {
-		lineNum++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
-			continue // 跳过空行
-		}
-
-		// 打印调试信息
-		fmt.Printf("处理第 %d 行, 长度: %d\n", lineNum, len(line))
-		if len(line) < 100 {
-			fmt.Printf("行内容: %s\n", line)
-		} else {
-			fmt.Printf("行内容(截断): %s...\n", line[:100])
+			continue
 		}
 
 		var result InputResult
 		if err := json.Unmarshal([]byte(line), &result); err != nil {
-			fmt.Printf("解析行失败: %v, 行号: %d, 行内容: %s\n", err, lineNum, line)
-			// 尝试打印更详细的错误信息
-			if jsonErr, ok := err.(*json.SyntaxError); ok {
-				fmt.Printf("JSON语法错误位置: %d\n", jsonErr.Offset)
-			}
 			continue
 		}
 		results = append(results, result)
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("读取文件失败: %v", err)
+		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
 
-	fmt.Printf("成功加载 %d 条记录\n", len(results))
 	return results, nil
 }
 
@@ -112,7 +79,6 @@ func LoadResultsFromDirectory(dirPath string) ([]InputResult, error) {
 	// 首先检查目录中是否有info.jsonl文件直接加载
 	jsonlPath := filepath.Join(dirPath, "info.jsonl")
 	if _, err := os.Stat(jsonlPath); err == nil {
-		fmt.Printf("发现info.jsonl文件，直接加载: %s\n", jsonlPath)
 		return LoadInputFile(jsonlPath)
 	}
 
@@ -134,16 +100,13 @@ func LoadResultsFromDirectory(dirPath string) ([]InputResult, error) {
 			if strings.Contains(info.Name(), ".analysis") ||
 				strings.Contains(info.Name(), "report") ||
 				strings.Contains(info.Name(), "summary") {
-				fmt.Printf("跳过分析文件: %s\n", path)
 				return nil
 			}
 
 			// 如果是.jsonl文件，使用LoadInputFile加载
 			if strings.HasSuffix(info.Name(), ".jsonl") {
-				fmt.Printf("加载.jsonl文件: %s\n", path)
 				batchResults, err := LoadInputFile(path)
 				if err != nil {
-					fmt.Printf("加载.jsonl文件失败: %s, 错误: %v\n", path, err)
 					return nil
 				}
 
@@ -157,11 +120,9 @@ func LoadResultsFromDirectory(dirPath string) ([]InputResult, error) {
 				return nil
 			}
 
-			// 处理单个JSON文件
-			fmt.Printf("加载单个JSON文件: %s\n", path)
+			// Process single JSON file
 			result, err := LoadSingleResultFile(path)
 			if err != nil {
-				fmt.Printf("加载文件失败: %s, 错误: %v\n", path, err)
 				return nil
 			}
 
@@ -169,8 +130,6 @@ func LoadResultsFromDirectory(dirPath string) ([]InputResult, error) {
 			if !processedIDs[result.ID] {
 				processedIDs[result.ID] = true
 				results = append(results, *result)
-			} else {
-				fmt.Printf("跳过重复的ID: %d, 文件: %s\n", result.ID, path)
 			}
 		}
 
@@ -181,7 +140,6 @@ func LoadResultsFromDirectory(dirPath string) ([]InputResult, error) {
 		return nil, fmt.Errorf("遍历目录失败: %v", err)
 	}
 
-	fmt.Printf("从目录 '%s' 加载了 %d 条记录\n", dirPath, len(results))
 	return results, nil
 }
 

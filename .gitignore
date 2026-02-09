@@ -61,3 +61,5 @@ contexts/sqlite/
 
 # Stashed data (created by scripts/stash_data.sh)
 .data_stash/
+analyze_results
+eval

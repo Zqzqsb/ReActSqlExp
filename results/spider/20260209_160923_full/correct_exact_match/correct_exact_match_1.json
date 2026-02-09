@@ -1,0 +1,15 @@
+{
+  "db_id": "concert_singer",
+  "error_reason": "",
+  "gt_error": null,
+  "gt_result": null,
+  "gt_sql": "SELECT count(*) FROM singer",
+  "id": 1,
+  "is_correct": true,
+  "is_equivalent": true,
+  "pred_error": null,
+  "pred_result": null,
+  "pred_sql": "SELECT COUNT(*) FROM singer;",
+  "question": "How many singers do we have?",
+  "thinking": ""
+}

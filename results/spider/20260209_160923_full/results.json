@@ -1,0 +1,30 @@
+[
+  {
+    "db_id": "concert_singer",
+    "question": "How many singers do we have?",
+    "gold_sql": "SELECT count(*) FROM singer",
+    "generated_sql": "SELECT COUNT(*) FROM singer;",
+    "status": "success",
+    "time_seconds": 0,
+    "llm_calls": 2,
+    "total_tokens": 0,
+    "clarify_count": 0,
+    "selected_tables": [
+      "singer"
+    ]
+  },
+  {
+    "db_id": "concert_singer",
+    "question": "What is the total number of singers?",
+    "gold_sql": "SELECT count(*) FROM singer",
+    "generated_sql": "SELECT COUNT(*) FROM singer;",
+    "status": "success",
+    "time_seconds": 0,
+    "llm_calls": 2,
+    "total_tokens": 0,
+    "clarify_count": 0,
+    "selected_tables": [
+      "singer"
+    ]
+  }
+]

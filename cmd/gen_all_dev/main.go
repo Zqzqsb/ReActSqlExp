@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"reactsql/internal/adapter"
@@ -23,37 +25,112 @@ type devQueryEntry struct {
 	DBID string `json:"db_id"`
 }
 
+// Default paths
+var defaultGenPaths = map[string]map[string]string{
+	"spider": {
+		"dev-file":   "benchmarks/spider_corrected/dev_with_fields.json",
+		"db-dir":     "benchmarks/spider/database",
+		"output-dir": "contexts/sqlite/spider",
+	},
+	"bird": {
+		"db-dir":     "benchmarks/bird/dev/dev_databases",
+		"output-dir": "contexts/sqlite/bird",
+	},
+}
+
 func main() {
-	benchmark := flag.String("benchmark", "", "Benchmark name: spider or bird (required)")
-	modelType := flag.String("model", "deepseek-v3", "Model type: deepseek-v3, deepseek-v3.2, qwen-max, qwen3-max, ali-deepseek-v3.2")
+	benchmark := flag.String("benchmark", "", "Benchmark: spider | bird (if empty, will ask interactively)")
+	modelType := flag.String("model", "deepseek-v3", "Model: deepseek-v3 | deepseek-v3.2 | qwen-max | qwen3-max | ali-deepseek-v3.2")
 	workers := flag.Int("workers", 2, "Number of concurrent workers")
 	skipExisting := flag.Bool("skip-existing", true, "Skip databases that already have Rich Context")
-	// Spider-specific flags
-	devFile := flag.String("dev-file", "benchmarks/spider_corrected/dev_with_fields.json", "Spider dev dataset JSON file path")
-	// Override defaults
-	dbDir := flag.String("db-dir", "", "Database directory (auto-detected from benchmark if not set)")
-	outputDir := flag.String("output-dir", "", "Output directory (auto-detected from benchmark if not set)")
+	devFile := flag.String("dev-file", "", "Spider dev dataset JSON file path (auto-detected)")
+	dbDir := flag.String("db-dir", "", "Database directory (auto-detected)")
+	outputDir := flag.String("output-dir", "", "Output directory (auto-detected)")
 	flag.Parse()
 
+	reader := bufio.NewReader(os.Stdin)
+
+	// ── Step 1: Select benchmark ──
 	if *benchmark == "" {
-		fmt.Println("Usage:")
-		fmt.Println("  Spider: go run ./cmd/gen_all_dev --benchmark spider")
-		fmt.Println("  BIRD:   go run ./cmd/gen_all_dev --benchmark bird")
 		fmt.Println()
-		flag.PrintDefaults()
-		os.Exit(1)
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Println("🧠 Rich Context Generator")
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Println("  Generate Rich Context (table/column descriptions)")
+		fmt.Println("  for all databases in a benchmark dev set.")
+		fmt.Println()
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Println("📦 Select Benchmark")
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+		// Show existing context status
+		for i, bm := range []string{"spider", "bird"} {
+			existingCount := countExistingContexts(defaultGenPaths[bm]["output-dir"])
+			status := ""
+			if existingCount > 0 {
+				status = fmt.Sprintf(" (%d contexts already generated)", existingCount)
+			}
+			desc := "Spider dev set — cross-database"
+			if bm == "bird" {
+				desc = "BIRD dev set — with evidence hints"
+			}
+			fmt.Printf("  %d. %-8s — %s%s\n", i+1, bm, desc, status)
+		}
+		fmt.Println()
+		fmt.Print("Enter choice [1/2]: ")
+
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+		switch input {
+		case "1", "spider":
+			*benchmark = "spider"
+		case "2", "bird":
+			*benchmark = "bird"
+		default:
+			log.Fatalf("Invalid choice: %s", input)
+		}
+	}
+
+	if *benchmark != "spider" && *benchmark != "bird" {
+		log.Fatalf("Unknown benchmark: %s. Use 'spider' or 'bird'.", *benchmark)
+	}
+
+	// ── Step 2: Resolve paths ──
+	paths := defaultGenPaths[*benchmark]
+	if *devFile == "" {
+		*devFile = paths["dev-file"]
+	}
+	resolvedDBDir := resolveDir(*dbDir, paths["db-dir"])
+	resolvedOutputDir := resolveDir(*outputDir, paths["output-dir"])
+
+	// Validate paths
+	if _, err := os.Stat(resolvedDBDir); os.IsNotExist(err) {
+		log.Fatalf("❌ Database directory not found: %s\n   Please download the %s benchmark databases first.", resolvedDBDir, *benchmark)
 	}
 
 	model := parseModelType(*modelType)
 
 	switch *benchmark {
 	case "spider":
-		runSpider(model, *devFile, resolveDir(*dbDir, "benchmarks/spider/database"), resolveDir(*outputDir, "contexts/sqlite/spider"), *workers, *skipExisting)
+		runSpider(model, *devFile, resolvedDBDir, resolvedOutputDir, *workers, *skipExisting)
 	case "bird":
-		runBird(model, resolveDir(*dbDir, "benchmarks/bird/dev/dev_databases"), resolveDir(*outputDir, "contexts/sqlite/bird"), *workers, *skipExisting)
-	default:
-		log.Fatalf("Unknown benchmark: %s. Use 'spider' or 'bird'.", *benchmark)
+		runBird(model, resolvedDBDir, resolvedOutputDir, *workers, *skipExisting)
 	}
+}
+
+// countExistingContexts counts .json files in a directory
+func countExistingContexts(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
+			count++
+		}
+	}
+	return count
 }
 
 // resolveDir returns override if non-empty, otherwise returns defaultDir
@@ -88,12 +165,22 @@ func parseModelType(modelType string) llm.ModelType {
 // ─────────────────────────────────────────────────────
 
 func runSpider(model llm.ModelType, devFile, dbDir, outputDir string, workerCount int, skipExisting bool) {
-	printBanner("Spider")
-	fmt.Printf("Dev file:   %s\n", devFile)
-	fmt.Printf("DB dir:     %s\n", dbDir)
-	fmt.Printf("Output dir: %s\n", outputDir)
-	fmt.Printf("Workers:    %d\n", workerCount)
-	fmt.Printf("🤖 Model:   %s\n\n", llm.GetModelDisplayName(model))
+	existingCount := countExistingContexts(outputDir)
+	fmt.Println()
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("🚀 Spider — Rich Context Generator")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("  Dev file:      %s\n", devFile)
+	fmt.Printf("  DB dir:        %s\n", dbDir)
+	fmt.Printf("  Output dir:    %s\n", outputDir)
+	fmt.Printf("  Workers:       %d\n", workerCount)
+	fmt.Printf("  Skip existing: %v\n", skipExisting)
+	fmt.Printf("  Model:         %s\n", llm.GetModelDisplayName(model))
+	if existingCount > 0 {
+		fmt.Printf("  Existing:      %d contexts already generated\n", existingCount)
+	}
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
 
 	// 1. Extract unique db_ids from dev file
 	databases, err := extractSpiderDevDBIDs(devFile)
@@ -136,11 +223,21 @@ func extractSpiderDevDBIDs(devFile string) ([]string, error) {
 // ─────────────────────────────────────────────────────
 
 func runBird(model llm.ModelType, dbDir, outputDir string, workerCount int, skipExisting bool) {
-	printBanner("BIRD")
-	fmt.Printf("DB dir:     %s\n", dbDir)
-	fmt.Printf("Output dir: %s\n", outputDir)
-	fmt.Printf("Workers:    %d\n", workerCount)
-	fmt.Printf("🤖 Model:   %s\n\n", llm.GetModelDisplayName(model))
+	existingCount := countExistingContexts(outputDir)
+	fmt.Println()
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("🚀 BIRD — Rich Context Generator")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("  DB dir:        %s\n", dbDir)
+	fmt.Printf("  Output dir:    %s\n", outputDir)
+	fmt.Printf("  Workers:       %d\n", workerCount)
+	fmt.Printf("  Skip existing: %v\n", skipExisting)
+	fmt.Printf("  Model:         %s\n", llm.GetModelDisplayName(model))
+	if existingCount > 0 {
+		fmt.Printf("  Existing:      %d contexts already generated\n", existingCount)
+	}
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
 
 	// Scan database directory for sub-directories
 	entries, err := os.ReadDir(dbDir)
@@ -164,12 +261,6 @@ func runBird(model llm.ModelType, dbDir, outputDir string, workerCount int, skip
 // ─────────────────────────────────────────────────────
 // Common batch runner
 // ─────────────────────────────────────────────────────
-
-func printBanner(benchmarkName string) {
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("🚀 %s Dev — Rich Context Generator (gen_all_dev)\n", benchmarkName)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-}
 
 func filterExisting(databases []string, outputDir string, skipExisting bool) []string {
 	if !skipExisting {

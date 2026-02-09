@@ -21,23 +21,17 @@ type SpiderResult struct {
 
 // LoadSpiderResultFile 加载Spider评测结果文件
 func LoadSpiderResultFile(filePath string) ([]InputResult, error) {
-	fmt.Printf("加载Spider格式文件: %s\n", filePath)
-
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("读取文件失败: %v", err)
+		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
-
-	fmt.Printf("文件大小: %d 字节\n", len(data))
 
 	var spiderResults []SpiderResult
 	if err := json.Unmarshal(data, &spiderResults); err != nil {
-		return nil, fmt.Errorf("解析JSON失败: %v", err)
+		return nil, fmt.Errorf("failed to parse JSON: %v", err)
 	}
 
-	fmt.Printf("解析到 %d 条Spider结果\n", len(spiderResults))
-
-	// 转换为InputResult格式
+	// Convert to InputResult format
 	results := make([]InputResult, 0, len(spiderResults))
 	for i, sr := range spiderResults {
 		results = append(results, InputResult{
@@ -49,6 +43,5 @@ func LoadSpiderResultFile(filePath string) ([]InputResult, error) {
 		})
 	}
 
-	fmt.Printf("转换为 %d 条InputResult\n", len(results))
 	return results, nil
 }

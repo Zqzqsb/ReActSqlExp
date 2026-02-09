@@ -1,226 +1,410 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"reactsql/internal/adapter"
 )
 
+// ─────────────────────────────────────────────────────
+// Default paths (same as cmd/eval)
+// ─────────────────────────────────────────────────────
+
+var defaultDBDirs = map[string]string{
+	"spider": "benchmarks/spider/database",
+	"bird":   "benchmarks/bird/dev/dev_databases",
+}
+
+var defaultSPJPaths = map[string]string{
+	"spider": "benchmarks/spider/dev_with_spj.json",
+}
+
+// ResultDirInfo holds metadata about a discovered result directory
+type ResultDirInfo struct {
+	Path      string
+	Benchmark string // "spider" or "bird"
+	DirName   string // e.g. "20260209_160923_full"
+	ModeName  string // e.g. "full" extracted from dirname
+	FileCount int    // number of entries in results.json or info.jsonl
+	HasJSON   bool   // has results.json
+	HasJSONL  bool   // has info.jsonl
+}
+
 func main() {
-	// 解析命令行参数
-	inputPath := flag.String("input", "", "输入文件或目录路径")
-	outputDir := flag.String("output", "./output", "输出目录路径")
-	dbDir := flag.String("db-dir", "", "数据库目录路径")
-	dbType := flag.String("db-type", "", "数据库类型 (sqlite, postgresql)")
+	// Command line flags (for non-interactive usage)
+	inputPath := flag.String("input", "", "Input file or directory path (if empty, will auto-discover)")
+	outputDir := flag.String("output", "", "Output directory (default: same as input)")
+	dbDir := flag.String("db-dir", "", "Database directory (auto-detected if not set)")
+	dbType := flag.String("db-type", "", "Database type: sqlite | postgresql (auto-detected if not set)")
 	flag.Parse()
 
-	// 验证输入参数
-	if *inputPath == "" {
-		fmt.Println("错误: 必须指定输入文件或目录路径")
-		flag.Usage()
-		os.Exit(1)
-	}
+	reader := bufio.NewReader(os.Stdin)
 
-	// 如果db-type为sqlite或未指定，必须提供数据库目录
-	if (*dbType == "" || *dbType == "sqlite") && *dbDir == "" {
-		fmt.Println("错误: 使用SQLite时必须指定数据库目录路径 (--db-dir)")
-		flag.Usage()
-		os.Exit(1)
-	}
+	// ── Step 1: Discover or use provided input ──
+	var selectedInput string
+	var detectedBenchmark string
 
-	// 确保输出目录存在
-	if err := EnsureDirectoryExists(*outputDir); err != nil {
-		fmt.Printf("创建输出目录失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	// 自动检测数据库类型
-	detectedDBType := ""
-	if *dbType == "" {
-		// 尝试从路径中自动检测数据库类型
-		if strings.Contains(*dbDir, "pg_") || strings.Contains(*dbDir, "postgres") {
-			detectedDBType = "pg"
-		} else {
-			detectedDBType = "sqlite"
-		}
-		fmt.Printf("自动检测到数据库类型: %s\n", detectedDBType)
+	if *inputPath != "" {
+		// Direct path provided
+		selectedInput = *inputPath
+		detectedBenchmark = detectBenchmarkFromPath(selectedInput)
 	} else {
-		detectedDBType = *dbType
-	}
+		// Auto-discover results
+		allResults := discoverResults()
 
-	// 创建context
-	ctx := context.Background()
-
-	// 创建SQL分析器
-	analyzer := NewSQLAnalyzer()
-
-	// 创建报告生成器，传入输入路径用于分类输出
-	reporter := NewReporter(*outputDir)
-
-	// 确定分类输出目录
-	var classifiedOutputDir string
-	fileInfo, err := os.Stat(*inputPath)
-	if err != nil {
-		fmt.Printf("获取输入路径信息失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	if fileInfo.IsDir() {
-		// 如果输入是目录，在该目录下创建分类输出
-		classifiedOutputDir = *inputPath
-	} else {
-		// 如果输入是文件，在文件所在目录创建分类输出
-		classifiedOutputDir = filepath.Dir(*inputPath)
-	}
-
-	// 创建分类输出管理器
-	classifier := NewResultClassifier(classifiedOutputDir)
-
-	// 加载输入结果
-	var inputResults []InputResult
-
-	// 根据输入路径类型加载结果
-	if fileInfo.IsDir() {
-		// 仅从目录中的info.jsonl文件加载结果
-		jsonlPath := filepath.Join(*inputPath, "info.jsonl")
-		fmt.Printf("从目录中的info.jsonl加载结果: %s\n", jsonlPath)
-
-		// 检查info.jsonl文件是否存在
-		if _, err := os.Stat(jsonlPath); os.IsNotExist(err) {
-			fmt.Printf("错误: info.jsonl文件不存在于指定目录: %s\n", *inputPath)
+		if len(allResults) == 0 {
+			fmt.Println("❌ No evaluation results found in results/ directory.")
+			fmt.Println("   Run an evaluation first: go run ./cmd/eval")
 			os.Exit(1)
 		}
 
-		// 只加载info.jsonl文件
-		inputResults, err = LoadInputFile(jsonlPath)
-	} else {
-		// 从单个文件加载结果
-		fmt.Printf("从文件加载结果: %s\n", *inputPath)
+		// Interactive selection
+		fmt.Println()
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Println("📊 Select Results to Analyze")
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-		// 统一使用LoadInputFile，它会自动判断格式
-		inputResults, err = LoadInputFile(*inputPath)
+		currentBenchmark := ""
+		for i, r := range allResults {
+			if r.Benchmark != currentBenchmark {
+				currentBenchmark = r.Benchmark
+				fmt.Printf("\n  [%s]\n", strings.ToUpper(currentBenchmark))
+			}
+			fileType := "json"
+			if r.HasJSONL {
+				fileType = "jsonl"
+			}
+			fmt.Printf("  %2d. %-40s (%d examples, %s)\n", i+1, r.DirName, r.FileCount, fileType)
+		}
+
+		fmt.Println()
+		fmt.Printf("Enter choice [1-%d]: ", len(allResults))
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+
+		var idx int
+		if _, err := fmt.Sscanf(input, "%d", &idx); err != nil || idx < 1 || idx > len(allResults) {
+			fmt.Printf("❌ Invalid choice: %s\n", input)
+			os.Exit(1)
+		}
+
+		selected := allResults[idx-1]
+		selectedInput = selected.Path
+		detectedBenchmark = selected.Benchmark
 	}
 
-	if err != nil {
-		fmt.Printf("加载输入结果失败: %v\n", err)
+	// ── Step 2: Auto-detect database directory ──
+	resolvedDBDir := *dbDir
+	if resolvedDBDir == "" {
+		if defaultDir, ok := defaultDBDirs[detectedBenchmark]; ok {
+			resolvedDBDir = defaultDir
+		} else {
+			resolvedDBDir = defaultDBDirs["spider"] // fallback
+		}
+	}
+
+	// Validate db-dir
+	if _, err := os.Stat(resolvedDBDir); os.IsNotExist(err) {
+		fmt.Printf("❌ Database directory not found: %s\n", resolvedDBDir)
+		fmt.Printf("   Please download the %s benchmark databases first.\n", detectedBenchmark)
 		os.Exit(1)
 	}
 
-	fmt.Printf("成功加载 %d 个结果\n", len(inputResults))
-
-	// 加载 SPJ 标签
-	devJSONPath := "benchmarks/spider/dev_with_spj.json"
-	spjTags, err := LoadSPJTags(devJSONPath)
-	if err != nil {
-		fmt.Printf("⚠️  加载 SPJ 标签失败: %v\n", err)
-	} else if len(spjTags) > 0 {
-		// 将 SPJ 标签合并到输入结果中
-		MergeSPJTags(inputResults, spjTags)
+	// ── Step 3: Auto-detect database type ──
+	detectedDBType := *dbType
+	if detectedDBType == "" {
+		dt := DetectDBType(resolvedDBDir)
+		if dt == DBTypeUnknown {
+			detectedDBType = "sqlite"
+		} else {
+			detectedDBType = dt.String()
+		}
 	}
 
-	startTime := time.Now()
+	// ── Step 4: Determine output directory ──
+	resolvedOutputDir := *outputDir
+	if resolvedOutputDir == "" {
+		fileInfo, err := os.Stat(selectedInput)
+		if err != nil {
+			fmt.Printf("❌ Cannot stat input path: %v\n", err)
+			os.Exit(1)
+		}
+		if fileInfo.IsDir() {
+			resolvedOutputDir = selectedInput
+		} else {
+			resolvedOutputDir = filepath.Dir(selectedInput)
+		}
+	}
 
-	// 存储分析结果用于分类输出
+	// ── Step 5: Print config summary ──
+	fmt.Println()
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("🔍 Analyze Results — %s\n", strings.ToUpper(detectedBenchmark))
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("  Benchmark:      %s\n", detectedBenchmark)
+	fmt.Printf("  Input:          %s\n", selectedInput)
+	fmt.Printf("  DB Directory:   %s\n", resolvedDBDir)
+	fmt.Printf("  DB Type:        %s\n", detectedDBType)
+	fmt.Printf("  Output:         %s\n", resolvedOutputDir)
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+
+	// Ensure output directory exists
+	if err := EnsureDirectoryExists(resolvedOutputDir); err != nil {
+		fmt.Printf("❌ Failed to create output directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// ── Step 6: Load input results ──
+	ctx := context.Background()
+	analyzer := NewSQLAnalyzer()
+	reporter := NewReporter(resolvedOutputDir)
+
+	// Determine classified output directory
+	var classifiedOutputDir string
+	fileInfo, err := os.Stat(selectedInput)
+	if err != nil {
+		fmt.Printf("❌ Cannot stat input path: %v\n", err)
+		os.Exit(1)
+	}
+	if fileInfo.IsDir() {
+		classifiedOutputDir = selectedInput
+	} else {
+		classifiedOutputDir = filepath.Dir(selectedInput)
+	}
+
+	classifier := NewResultClassifier(classifiedOutputDir)
+
+	// Load results
+	var inputResults []InputResult
+	if fileInfo.IsDir() {
+		jsonlPath := filepath.Join(selectedInput, "info.jsonl")
+		jsonPath := filepath.Join(selectedInput, "results.json")
+
+		if _, err := os.Stat(jsonlPath); err == nil {
+			fmt.Printf("📂 Loading results from: %s\n", jsonlPath)
+			inputResults, err = LoadInputFile(jsonlPath)
+		} else if _, err2 := os.Stat(jsonPath); err2 == nil {
+			fmt.Printf("📂 Loading results from: %s\n", jsonPath)
+			inputResults, err = LoadInputFile(jsonPath)
+		} else {
+			fmt.Printf("❌ No results file found in: %s\n", selectedInput)
+			fmt.Println("   Expected: info.jsonl or results.json")
+			os.Exit(1)
+		}
+	} else {
+		fmt.Printf("📂 Loading results from: %s\n", selectedInput)
+		inputResults, err = LoadInputFile(selectedInput)
+	}
+
+	if err != nil {
+		fmt.Printf("❌ Failed to load results: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✅ Loaded %d results\n\n", len(inputResults))
+
+	// ── Step 7: Load SPJ tags ──
+	if spjPath, ok := defaultSPJPaths[detectedBenchmark]; ok {
+		spjTags, err := LoadSPJTags(spjPath)
+		if err != nil {
+			fmt.Printf("⚠️  Failed to load SPJ tags: %v\n", err)
+		} else if len(spjTags) > 0 {
+			MergeSPJTags(inputResults, spjTags)
+		}
+	}
+
+	// ── Step 8: Run analysis ──
+	startTime := time.Now()
 	var analysisResults []*AnalysisResult
 
-	// 处理每个输入结果
 	for i, input := range inputResults {
-		// 显示进度
-		if i > 0 && i%10 == 0 {
-			fmt.Printf("已处理 %d/%d 个查询...\n", i, len(inputResults))
+		if i > 0 && i%50 == 0 {
+			fmt.Printf("  ⏳ Processed %d/%d queries...\n", i, len(inputResults))
 		}
 
-		// 执行SQL查询
-		fmt.Printf("执行查询: ID=%d, DB=%s\n", input.ID, input.DBName)
-
-		// 构造数据库路径
+		// Build database path
 		dbPath := input.DBName
 		if detectedDBType == "pg" || detectedDBType == "postgres" || detectedDBType == "postgresql" {
-			// 如果是PostgreSQL，添加pg:前缀
 			dbPath = "pg:" + input.DBName
-		} else if *dbDir != "" {
-			// 如果是SQLite且指定了数据库目录
-			dbPath = filepath.Join(*dbDir, input.DBName)
-			dbPath = filepath.Join(dbPath, input.DBName)
-			dbPath += ".sqlite"
+		} else {
+			dbPath = filepath.Join(resolvedDBDir, input.DBName, input.DBName+".sqlite")
 		}
 
-		// 执行标准SQL
+		// Execute SQL queries
 		gtResult := &ExecResult{Success: false}
 		predResult := &ExecResult{Success: false}
 		var gtErr, predErr error
 
-		// 创建数据库适配器
 		dbAdapter, err := adapter.NewAdapter(&adapter.DBConfig{
 			Type:     "sqlite",
 			FilePath: dbPath,
 		})
 		if err != nil {
-			fmt.Printf("创建数据库适配器失败: %v\n", err)
 			gtResult.Error = fmt.Sprintf("DB connection error: %v", err)
 			predResult.Error = fmt.Sprintf("DB connection error: %v", err)
 		} else {
-			defer dbAdapter.Close()
-
 			if err := dbAdapter.Connect(ctx); err != nil {
-				fmt.Printf("连接数据库失败: %v\n", err)
 				gtResult.Error = fmt.Sprintf("DB connection error: %v", err)
 				predResult.Error = fmt.Sprintf("DB connection error: %v", err)
 			} else {
-				// 执行标准SQL
-				fmt.Printf("执行标准SQL: %s\n", input.GTSQL)
-				gtData, gtErr := dbAdapter.ExecuteQuery(ctx, input.GTSQL)
-				if gtErr == nil {
+				// Execute gold SQL
+				gtData, ge := dbAdapter.ExecuteQuery(ctx, input.GTSQL)
+				gtErr = ge
+				if ge == nil {
 					gtResult.Success = true
 					gtResult.Rows = ConvertQueryResultFormat(gtData)
 				} else {
-					gtResult.Error = gtErr.Error()
-					fmt.Printf("标准SQL执行错误: %v\n", gtErr)
+					gtResult.Error = ge.Error()
 				}
 
-				// 执行预测SQL
-				fmt.Printf("执行预测SQL: %s\n", input.PredSQL)
-				predData, predErr := dbAdapter.ExecuteQuery(ctx, input.PredSQL)
-				if predErr == nil {
+				// Execute predicted SQL
+				predData, pe := dbAdapter.ExecuteQuery(ctx, input.PredSQL)
+				predErr = pe
+				if pe == nil {
 					predResult.Success = true
 					predResult.Rows = ConvertQueryResultFormat(predData)
 				} else {
-					predResult.Error = predErr.Error()
-					fmt.Printf("预测SQL执行错误: %v\n", predErr)
+					predResult.Error = pe.Error()
 				}
 			}
+			dbAdapter.Close()
 		}
 
-		// 分析结果
+		// Analyze
 		analysisResult := analyzer.AnalyzeSQL(input, gtResult, predResult, gtErr, predErr)
-
-		// 添加到分析结果列表
 		analysisResults = append(analysisResults, analysisResult)
 	}
 
-	// 计算分析时间
 	elapsedTime := time.Since(startTime)
-
-	// 获取统计信息
 	stats := analyzer.GetStatistics()
 
-	// 分类输出详细结果
-	fmt.Printf("\n开始分类输出分析结果...\n")
+	// ── Step 9: Classify and save ──
+	fmt.Printf("\n📁 Classifying analysis results...\n")
 	if err := classifier.ClassifyAndSaveResults(analysisResults); err != nil {
-		fmt.Printf("分类输出结果失败: %v\n", err)
+		fmt.Printf("⚠️  Failed to classify results: %v\n", err)
 	} else {
-		fmt.Printf("分类输出完成，结果保存在: %s\n", classifiedOutputDir)
+		fmt.Printf("✅ Classification saved to: %s\n", classifiedOutputDir)
 	}
 
-	// 打印摘要
+	// ── Step 10: Print summary ──
 	reporter.PrintSummary(stats, len(inputResults))
 
-	// 显示总耗时
-	fmt.Printf("\n分析完成，总耗时: %s\n", elapsedTime)
+	// Save summary report
+	if err := reporter.GenerateSummaryReport(stats, len(inputResults)); err != nil {
+		fmt.Printf("⚠️  Failed to save summary report: %v\n", err)
+	}
+
+	fmt.Printf("\n⏱️  Analysis completed in %s\n", elapsedTime)
+}
+
+// ─────────────────────────────────────────────────────
+// Auto-discovery helpers
+// ─────────────────────────────────────────────────────
+
+// discoverResults scans results/ directory for evaluation results
+func discoverResults() []ResultDirInfo {
+	var results []ResultDirInfo
+
+	for _, benchmark := range []string{"spider", "bird"} {
+		benchDir := filepath.Join("results", benchmark)
+		entries, err := os.ReadDir(benchDir)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+
+			dirPath := filepath.Join(benchDir, entry.Name())
+			info := ResultDirInfo{
+				Path:      dirPath,
+				Benchmark: benchmark,
+				DirName:   entry.Name(),
+			}
+
+			// Extract mode name from directory name (e.g. "20260209_160923_full" -> "full")
+			parts := strings.SplitN(entry.Name(), "_", 3)
+			if len(parts) >= 3 {
+				info.ModeName = parts[2]
+			}
+
+			// Check for results files and count entries
+			jsonlPath := filepath.Join(dirPath, "info.jsonl")
+			jsonPath := filepath.Join(dirPath, "results.json")
+
+			if fi, err := os.Stat(jsonlPath); err == nil && fi.Size() > 0 {
+				info.HasJSONL = true
+				info.FileCount = countJSONLLines(jsonlPath)
+			}
+			if fi, err := os.Stat(jsonPath); err == nil && fi.Size() > 2 {
+				info.HasJSON = true
+				if info.FileCount == 0 {
+					info.FileCount = countJSONEntries(jsonPath)
+				}
+			}
+
+			// Only include directories that have some results
+			if info.HasJSON || info.HasJSONL {
+				results = append(results, info)
+			}
+		}
+	}
+
+	// Sort by benchmark then by dirname (newest first via reverse)
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Benchmark != results[j].Benchmark {
+			return results[i].Benchmark < results[j].Benchmark
+		}
+		return results[i].DirName > results[j].DirName // newest first
+	})
+
+	return results
+}
+
+// detectBenchmarkFromPath guesses benchmark type from path
+func detectBenchmarkFromPath(path string) string {
+	pathLower := strings.ToLower(path)
+	if strings.Contains(pathLower, "bird") {
+		return "bird"
+	}
+	return "spider"
+}
+
+// countJSONLLines counts non-empty lines in a JSONL file
+func countJSONLLines(path string) int {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+
+	count := 0
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		if strings.TrimSpace(scanner.Text()) != "" {
+			count++
+		}
+	}
+	return count
+}
+
+// countJSONEntries counts entries in a JSON array file (lightweight, no full parse)
+func countJSONEntries(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	// Count "db_id" occurrences as a proxy for number of entries
+	return strings.Count(string(data), `"db_id"`)
 }
