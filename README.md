@@ -29,6 +29,7 @@ go run ./cmd/eval_spider --use-rich-context --use-react
 - **Go** >= 1.21
 - **LLM API**: 支持 OpenAI 兼容接口的模型（DeepSeek-V3, Qwen-3 Max, GLM-4.7, Kimi-K2 等）
 - **curl**（或 wget）+ **unzip**：用于下载数据集
+- **gdown**（推荐）：`pip install gdown`，用于可靠地从 Google Drive 下载大文件
 
 ## Project Structure
 

@@ -27,6 +27,15 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 command -v unzip >/dev/null 2>&1 || error "unzip is required. Install: sudo apt install unzip"
 
+# Check for gdown (for reliable Google Drive downloads)
+if command -v gdown >/dev/null 2>&1; then
+    HAS_GDOWN=true
+else
+    HAS_GDOWN=false
+    warn "gdown not found. Install: pip install gdown"
+    warn "Falling back to curl/wget for Google Drive (may fail for large files)."
+fi
+
 # Prefer curl, fall back to wget
 if command -v curl >/dev/null 2>&1; then
     DOWNLOADER="curl"
@@ -36,17 +45,31 @@ else
     error "curl or wget is required. Install: sudo apt install curl"
 fi
 
-# download_file URL OUTPUT_PATH DESCRIPTION
-download_file() {
-    local url="$1"
+# download_gdrive GOOGLE_DRIVE_FILE_ID OUTPUT_PATH DESCRIPTION
+download_gdrive() {
+    local file_id="$1"
     local output="$2"
     local desc="$3"
 
     info "Downloading $desc ..."
-    if [ "$DOWNLOADER" = "curl" ]; then
-        curl -L --progress-bar -o "$output" "$url"
+    if [ "$HAS_GDOWN" = true ]; then
+        gdown "$file_id" -O "$output"
+    elif [ "$DOWNLOADER" = "curl" ]; then
+        curl -L --progress-bar -o "$output" \
+            "https://drive.usercontent.google.com/download?id=${file_id}&export=download&confirm=t"
     else
-        wget --progress=bar:force -O "$output" "$url" 2>&1
+        wget --progress=bar:force -O "$output" \
+            "https://drive.usercontent.google.com/download?id=${file_id}&export=download&confirm=t" 2>&1
+    fi
+}
+
+# verify_zip FILE_PATH DESCRIPTION
+verify_zip() {
+    local filepath="$1"
+    local desc="$2"
+    if ! file "$filepath" | grep -qi "zip"; then
+        rm -f "$filepath"
+        error "Downloaded $desc is not a valid zip file.\n  Google Drive may have returned an HTML error page.\n  Install gdown (pip install gdown) and retry, or download manually."
     fi
 }
 
@@ -63,18 +86,13 @@ if [ -d "$SPIDER_DB_DIR" ] && [ "$(ls -A "$SPIDER_DB_DIR" 2>/dev/null)" ]; then
 else
     SPIDER_TMP="$PROJECT_ROOT/benchmarks/spider/_spider_tmp.zip"
 
-    # Google Drive: use confirm=t to bypass large file warning
-    download_file \
-        "https://drive.usercontent.google.com/download?id=1403EGqzIDoHMdQF4c9Bkyl7dZLZ5Wt6J&export=download&confirm=t" \
+    # Google Drive file ID for Spider 1.0
+    download_gdrive "1403EGqzIDoHMdQF4c9Bkyl7dZLZ5Wt6J" \
         "$SPIDER_TMP" \
         "Spider 1.0 dataset (~840 MB)" \
         || error "Failed to download Spider. Please download manually:\n  1. Go to https://yale-lily.github.io/spider\n  2. Download the dataset zip\n  3. Extract database/ into benchmarks/spider/"
 
-    # Verify it's actually a zip file (not an HTML error page)
-    if ! file "$SPIDER_TMP" | grep -qi "zip"; then
-        rm -f "$SPIDER_TMP"
-        error "Downloaded file is not a valid zip. Google Drive may have blocked the download.\n  Please download manually from https://yale-lily.github.io/spider"
-    fi
+    verify_zip "$SPIDER_TMP" "Spider dataset"
 
     info "Extracting Spider databases..."
     unzip -q "$SPIDER_TMP" "spider/database/*" -d "$PROJECT_ROOT/benchmarks/" 2>/dev/null \
@@ -110,13 +128,15 @@ BIRD_DB_DIR="$PROJECT_ROOT/benchmarks/bird/dev/dev_databases"
 if [ -d "$BIRD_DB_DIR" ] && [ "$(ls -A "$BIRD_DB_DIR" 2>/dev/null)" ]; then
     warn "BIRD databases already exist at $BIRD_DB_DIR, skipping."
 else
-    BIRD_TMP="$PROJECT_ROOT/benchmarks/bird/dev/dev_databases.zip"
+    BIRD_TMP="$PROJECT_ROOT/benchmarks/bird/dev/_bird_tmp.zip"
 
-    download_file \
-        "https://bird-bench.oss-cn-beijing.aliyuncs.com/dev20240627/dev_databases.zip" \
+    # Google Drive file ID for BIRD dev databases (from official HuggingFace page)
+    download_gdrive "13VLWIwpw5E3d5DUkMvzw7hvHE67a4XkG" \
         "$BIRD_TMP" \
         "BIRD dev databases (~1.4 GB)" \
-        || error "Failed to download BIRD. Please download from https://bird-bench.github.io/"
+        || error "Failed to download BIRD.\n  Please download manually from:\n  https://drive.google.com/file/d/13VLWIwpw5E3d5DUkMvzw7hvHE67a4XkG"
+
+    verify_zip "$BIRD_TMP" "BIRD databases"
 
     info "Extracting BIRD databases..."
     unzip -q "$BIRD_TMP" -d "$(dirname "$BIRD_DB_DIR")"
@@ -124,7 +144,19 @@ else
     # Clean up macOS artifacts
     rm -rf "$PROJECT_ROOT/benchmarks/bird/dev/__MACOSX"
 
-    info "BIRD databases ready. ($(ls "$BIRD_DB_DIR" | wc -l) databases)"
+    # Handle different zip structures: the zip might contain a top-level folder
+    if [ ! -d "$BIRD_DB_DIR" ]; then
+        BIRD_FOUND=$(find "$(dirname "$BIRD_DB_DIR")" -maxdepth 2 -type d -name "dev_databases" | head -1)
+        if [ -n "$BIRD_FOUND" ] && [ "$BIRD_FOUND" != "$BIRD_DB_DIR" ]; then
+            mv "$BIRD_FOUND" "$BIRD_DB_DIR"
+        fi
+    fi
+
+    if [ -d "$BIRD_DB_DIR" ] && [ "$(ls -A "$BIRD_DB_DIR")" ]; then
+        info "BIRD databases ready. ($(ls "$BIRD_DB_DIR" | wc -l) databases)"
+    else
+        error "Extraction failed. Please download manually from:\n  https://drive.google.com/file/d/13VLWIwpw5E3d5DUkMvzw7hvHE67a4XkG"
+    fi
 fi
 
 # ============================================================
