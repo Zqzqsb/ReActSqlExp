@@ -42,6 +42,9 @@ logs/
 bin/
 dist/
 build/
+/gen_all_dev
+/gen_rich_context_spider
+/gen_rich_context_bird
 
 # Temporary files
 tmp/
@@ -51,6 +54,10 @@ temp/
 benchmarks/spider/database/
 benchmarks/bird/dev/dev_databases/
 benchmarks/bird/dev/dev_databases.zip
+benchmarks/bird/dev/minidev/
+
+# Generated contexts (can be regenerated via gen_rich_context_*)
+contexts/sqlite/
 
 # Stashed data (created by scripts/stash_data.sh)
 .data_stash/
