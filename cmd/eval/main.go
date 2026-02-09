@@ -47,20 +47,21 @@ type BirdExample struct {
 
 // EvalResult unified evaluation result
 type EvalResult struct {
-	QuestionID     int      `json:"question_id,omitempty"`
-	DbID           string   `json:"db_id"`
-	Question       string   `json:"question"`
-	Evidence       string   `json:"evidence,omitempty"`
-	GoldSQL        string   `json:"gold_sql"`
-	GeneratedSQL   string   `json:"generated_sql"`
-	Status         string   `json:"status"` // success, error, timeout
-	Error          string   `json:"error,omitempty"`
-	TimeSeconds    float64  `json:"time_seconds"`
-	LLMCalls       int      `json:"llm_calls"`
-	TotalTokens    int      `json:"total_tokens"`
-	ClarifyCount   int      `json:"clarify_count"`
-	SelectedTables []string `json:"selected_tables"`
-	Difficulty     string   `json:"difficulty,omitempty"`
+	QuestionID     int                   `json:"question_id,omitempty"`
+	DbID           string                `json:"db_id"`
+	Question       string                `json:"question"`
+	Evidence       string                `json:"evidence,omitempty"`
+	GoldSQL        string                `json:"gold_sql"`
+	GeneratedSQL   string                `json:"generated_sql"`
+	Status         string                `json:"status"` // success, error, timeout
+	Error          string                `json:"error,omitempty"`
+	TimeSeconds    float64               `json:"time_seconds"`
+	LLMCalls       int                   `json:"llm_calls"`
+	TotalTokens    int                   `json:"total_tokens"`
+	ClarifyCount   int                   `json:"clarify_count"`
+	SelectedTables []string              `json:"selected_tables"`
+	Difficulty     string                `json:"difficulty,omitempty"`
+	ReActSteps     []inference.ReActStep `json:"react_steps,omitempty"`
 }
 
 // EvalMode predefined evaluation mode
@@ -431,6 +432,23 @@ func main() {
 		log.Fatalf("Failed to create output dir: %v", err)
 	}
 
+	// Create logs subdirectory for per-example logs
+	logsDir := filepath.Join(*outputDir, "logs")
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		log.Fatalf("Failed to create logs dir: %v", err)
+	}
+
+	// Create inference.log (compressed summary log)
+	inferenceLogPath := filepath.Join(*outputDir, "inference.log")
+	inferenceLogFile, err := os.Create(inferenceLogPath)
+	if err != nil {
+		log.Fatalf("Failed to create inference.log: %v", err)
+	}
+	defer inferenceLogFile.Close()
+
+	// Create shared inference logger
+	evalLogger := inference.NewInferenceLogger()
+
 	jsonPath := filepath.Join(*outputDir, "results.json")
 	jsonFile, err := os.Create(jsonPath)
 	if err != nil {
@@ -480,13 +498,48 @@ func main() {
 		fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 
 		var result EvalResult
+		var exampleDbID, exampleQuestion, exampleGoldSQL string
+		var exampleEvidence string
+
+		switch e := example.(type) {
+		case SpiderExample:
+			exampleDbID = e.DbID
+			exampleQuestion = e.Question
+			exampleGoldSQL = e.Query
+		case BirdExample:
+			exampleDbID = e.DbID
+			exampleQuestion = e.Question
+			exampleGoldSQL = e.SQL
+			exampleEvidence = e.Evidence
+		}
+
+		// ── Create per-example log file ──
+		logFileName := fmt.Sprintf("%04d_%s.log", i+1, exampleDbID)
+		logFilePath := filepath.Join(logsDir, logFileName)
+		logFile, logErr := os.Create(logFilePath)
+		if logErr != nil {
+			log.Printf("Warning: Failed to create log file %s: %v", logFilePath, logErr)
+		} else {
+			evalLogger.SetFile(logFile)
+			// Write log header
+			evalLogger.FileOnly("========================================\n")
+			evalLogger.FileOnly("Example: %04d\n", i+1)
+			evalLogger.FileOnly("DB: %s\n", exampleDbID)
+			evalLogger.FileOnly("Question: %s\n", exampleQuestion)
+			evalLogger.FileOnly("Gold SQL: %s\n", exampleGoldSQL)
+			if exampleEvidence != "" {
+				evalLogger.FileOnly("Evidence: %s\n", exampleEvidence)
+			}
+			evalLogger.FileOnly("Mode: %s\n", selectedMode.Name)
+			evalLogger.FileOnly("========================================\n\n")
+		}
 
 		switch e := example.(type) {
 		case SpiderExample:
 			fmt.Printf("[%d/%d] DB: %s\n", i+1, totalCount, e.DbID)
 			fmt.Printf("Question: %s\n", e.Question)
 			fmt.Printf("Gold SQL: %s\n", e.Query)
-			result = evaluateSpider(ctx, llmModel, e, dbDir, contextDir, selectedMode, *logMode)
+			result = evaluateSpider(ctx, llmModel, e, dbDir, contextDir, selectedMode, *logMode, evalLogger)
 
 		case BirdExample:
 			fmt.Printf("[%d/%d] DB: %s (difficulty: %s)\n", i+1, totalCount, e.DbID, e.Difficulty)
@@ -495,7 +548,7 @@ func main() {
 				fmt.Printf("Evidence: %s\n", e.Evidence)
 			}
 			fmt.Printf("Gold SQL: %s\n", e.SQL)
-			result = evaluateBird(ctx, llmModel, e, dbDir, contextDir, selectedMode, *logMode)
+			result = evaluateBird(ctx, llmModel, e, dbDir, contextDir, selectedMode, *logMode, evalLogger)
 		}
 
 		// Update stats
@@ -543,6 +596,35 @@ func main() {
 			fmt.Printf("Clarify Count: %d\n", result.ClarifyCount)
 		}
 
+		// ── Write per-example log footer & close ──
+		if logFile != nil {
+			evalLogger.FileOnly("\n[Result]\n")
+			evalLogger.FileOnly("  Generated SQL: %s\n", result.GeneratedSQL)
+			evalLogger.FileOnly("  Status: %s\n", result.Status)
+			if result.Error != "" {
+				evalLogger.FileOnly("  Error: %s\n", result.Error)
+			}
+			evalLogger.FileOnly("  Time: %.2fs\n", result.TimeSeconds)
+			evalLogger.FileOnly("  LLM Calls: %d, Tokens: %d\n", result.LLMCalls, result.TotalTokens)
+			evalLogger.CloseFile()
+		}
+
+		// ── Write inference.log compressed entry ──
+		statusIcon := "✅"
+		if result.Status != "success" {
+			statusIcon = "❌"
+		}
+		tablesStr := strings.Join(result.SelectedTables, ", ")
+		fmt.Fprintf(inferenceLogFile, "[%04d] %s | Q: %s\n", i+1, result.DbID, result.Question)
+		fmt.Fprintf(inferenceLogFile, "       Tables: [%s] | Iters: %d | Time: %.1fs | %s\n", tablesStr, result.LLMCalls, result.TimeSeconds, statusIcon)
+		fmt.Fprintf(inferenceLogFile, "       Gold: %s\n", result.GoldSQL)
+		fmt.Fprintf(inferenceLogFile, "       Pred: %s\n", result.GeneratedSQL)
+		if result.Error != "" {
+			fmt.Fprintf(inferenceLogFile, "       Error: %s\n", result.Error)
+		}
+		fmt.Fprintf(inferenceLogFile, "\n")
+		inferenceLogFile.Sync()
+
 		// GC after each sample
 		runtime.GC()
 
@@ -579,9 +661,21 @@ func main() {
 	if totalClarify > 0 {
 		fmt.Printf("Total Clarifications: %d (%.1f%%)\n", totalClarify, float64(totalClarify)/float64(totalCount)*100)
 	}
+
+	// Get absolute path for output dir
+	absOutputDir, _ := filepath.Abs(*outputDir)
+
 	fmt.Printf("\n✅ Results saved to: %s/\n", *outputDir)
-	fmt.Printf("  - results.json (detailed results)\n")
-	fmt.Printf("  - predict.sql  (predicted SQL for official evaluation)\n")
+	fmt.Printf("  - results.json     (detailed results with ReAct steps)\n")
+	fmt.Printf("  - predict.sql      (predicted SQL for official evaluation)\n")
+	fmt.Printf("  - inference.log    (compressed summary log)\n")
+	fmt.Printf("  - logs/            (per-example full logs, %d files)\n", totalCount)
+	fmt.Println()
+	fmt.Println("📂 Quick access:")
+	fmt.Printf("  cd %s\n", absOutputDir)
+	fmt.Printf("  cat inference.log                    # overview\n")
+	fmt.Printf("  cat logs/0001_*.log                  # single example\n")
+	fmt.Printf("  grep '❌' inference.log              # failed examples\n")
 }
 
 // ─────────────────────────────────────────────────────
@@ -596,6 +690,7 @@ func evaluateSpider(
 	contextDir string,
 	mode EvalMode,
 	logMode string,
+	logger *inference.InferenceLogger,
 ) EvalResult {
 	result := EvalResult{
 		DbID:     example.DbID,
@@ -653,6 +748,9 @@ func evaluateSpider(
 	}
 
 	pipeline := inference.NewPipeline(llm, dbAdapter, pipelineConfig)
+	if logger != nil {
+		pipeline.Logger = logger
+	}
 	inferResult, err := pipeline.Execute(ctx, example.Question)
 	if err != nil {
 		result.Error = fmt.Sprintf("inference: %v", err)
@@ -664,6 +762,7 @@ func evaluateSpider(
 	result.TotalTokens = inferResult.TotalTokens
 	result.ClarifyCount = inferResult.ClarifyCount
 	result.SelectedTables = inferResult.SelectedTables
+	result.ReActSteps = inferResult.ReActSteps
 	result.Status = "success"
 	return result
 }
@@ -680,6 +779,7 @@ func evaluateBird(
 	contextDir string,
 	mode EvalMode,
 	logMode string,
+	logger *inference.InferenceLogger,
 ) EvalResult {
 	result := EvalResult{
 		QuestionID: example.QuestionID,
@@ -743,6 +843,9 @@ func evaluateBird(
 	}
 
 	pipeline := inference.NewPipeline(llm, dbAdapter, pipelineConfig)
+	if logger != nil {
+		pipeline.Logger = logger
+	}
 	inferResult, err := pipeline.Execute(ctx, question)
 	if err != nil {
 		result.Error = fmt.Sprintf("inference: %v", err)
@@ -754,6 +857,7 @@ func evaluateBird(
 	result.TotalTokens = inferResult.TotalTokens
 	result.ClarifyCount = inferResult.ClarifyCount
 	result.SelectedTables = inferResult.SelectedTables
+	result.ReActSteps = inferResult.ReActSteps
 	result.Status = "success"
 	return result
 }

@@ -28,6 +28,9 @@ type PrettyReActHandler struct {
 
 	// Streaming callback for real-time step notifications
 	stepNotifier StepNotifier
+
+	// Logger for dual output (stdout + file)
+	logger *InferenceLogger
 }
 
 // SetStepNotifier sets the callback for streaming step notifications
@@ -96,17 +99,33 @@ var _ interface {
 	HandleStreamingFunc(ctx context.Context, chunk []byte)
 } = &PrettyReActHandler{}
 
+func (h *PrettyReActHandler) logPrintf(format string, a ...interface{}) {
+	if h.logger != nil {
+		h.logger.Printf(format, a...)
+	} else {
+		fmt.Printf(format, a...)
+	}
+}
+
+func (h *PrettyReActHandler) logPrintln(a ...interface{}) {
+	if h.logger != nil {
+		h.logger.Println(a...)
+	} else {
+		fmt.Println(a...)
+	}
+}
+
 func (h *PrettyReActHandler) HandleText(_ context.Context, text string) {}
 
 func (h *PrettyReActHandler) HandleLLMStart(_ context.Context, prompts []string) {
 	if h.logMode == "full" {
-		fmt.Println("\n" + strings.Repeat("=", 80))
-		fmt.Println("📤 LLM Prompt (Full)")
-		fmt.Println(strings.Repeat("=", 80))
+		h.logPrintln("\n" + strings.Repeat("=", 80))
+		h.logPrintln("📤 LLM Prompt (Full)")
+		h.logPrintln(strings.Repeat("=", 80))
 		for i, prompt := range prompts {
-			fmt.Printf("Prompt %d:\n%s\n", i+1, prompt)
+			h.logPrintf("Prompt %d:\n%s\n", i+1, prompt)
 		}
-		fmt.Println(strings.Repeat("=", 80))
+		h.logPrintln(strings.Repeat("=", 80))
 	}
 }
 
@@ -115,18 +134,18 @@ func (h *PrettyReActHandler) HandleLLMGenerateContentStart(_ context.Context, ms
 
 func (h *PrettyReActHandler) HandleLLMGenerateContentEnd(_ context.Context, res *llms.ContentResponse) {
 	if h.logMode == "full" {
-		fmt.Println("\n" + strings.Repeat("=", 80))
-		fmt.Println("📥 LLM Response (Full)")
-		fmt.Println(strings.Repeat("=", 80))
+		h.logPrintln("\n" + strings.Repeat("=", 80))
+		h.logPrintln("📥 LLM Response (Full)")
+		h.logPrintln(strings.Repeat("=", 80))
 		for i, choice := range res.Choices {
-			fmt.Printf("Choice %d:\n%s\n", i+1, choice.Content)
+			h.logPrintf("Choice %d:\n%s\n", i+1, choice.Content)
 		}
-		fmt.Println(strings.Repeat("=", 80))
+		h.logPrintln(strings.Repeat("=", 80))
 	}
 }
 
 func (h *PrettyReActHandler) HandleLLMError(_ context.Context, err error) {
-	fmt.Printf("❌ LLM Error: %v\n", err)
+	h.logPrintf("❌ LLM Error: %v\n", err)
 }
 
 func (h *PrettyReActHandler) HandleChainStart(_ context.Context, inputs map[string]any) {
@@ -140,11 +159,10 @@ func (h *PrettyReActHandler) HandleChainStart(_ context.Context, inputs map[stri
 
 	// Display iteration info
 	if h.effectiveIterationCount > 0 {
-		fmt.Printf("\n┌─ Iteration %d (Effective: %d/5) ─────────────────────────────────────────────\n", h.iterationCount, h.effectiveIterationCount)
+		h.logPrintf("\n┌─ Iteration %d (Effective: %d/5) ─────────────────────────────────────────────\n", h.iterationCount, h.effectiveIterationCount)
 	} else {
-		fmt.Printf("\n┌─ Iteration %d ─────────────────────────────────────────────\n", h.iterationCount)
+		h.logPrintf("\n┌─ Iteration %d ─────────────────────────────────────────────────────\n", h.iterationCount)
 	}
-
 	// Start collecting a new step
 	h.mu.Lock()
 	// Save previous step if exists and has content
@@ -172,21 +190,21 @@ func (h *PrettyReActHandler) HandleChainEnd(_ context.Context, outputs map[strin
 
 		// full mode: output full response
 		if h.logMode == "full" {
-			fmt.Printf("│ 📝 Full Response:\n")
+			h.logPrintf("│ 📝 Full Response:\n")
 			for _, line := range strings.Split(text, "\n") {
-				fmt.Printf("│   %s\n", line)
+				h.logPrintf("│   %s\n", line)
 			}
 		} else {
 			// simple mode: show Thought summary only
 			if thought != "" {
-				fmt.Printf("│ 💭 Thought: %s\n", truncate(thought, 120))
+				h.logPrintf("│ 💭 Thought: %s\n", truncate(thought, 120))
 			}
 		}
 	}
 }
 
 func (h *PrettyReActHandler) HandleChainError(_ context.Context, err error) {
-	fmt.Printf("│ ❌ Chain Error: %v\n", err)
+	h.logPrintf("│ ❌ Chain Error: %v\n", err)
 }
 
 func (h *PrettyReActHandler) HandleToolStart(_ context.Context, input string) {}
@@ -203,15 +221,15 @@ func (h *PrettyReActHandler) HandleToolEnd(_ context.Context, output string) {
 
 	// full mode: show tool output
 	if h.logMode == "full" {
-		fmt.Printf("│ 📤 Tool Output (Full):\n")
+		h.logPrintf("│ 📤 Tool Output (Full):\n")
 		for _, line := range strings.Split(output, "\n") {
-			fmt.Printf("│   %s\n", line)
+			h.logPrintf("│   %s\n", line)
 		}
 	}
 }
 
 func (h *PrettyReActHandler) HandleToolError(_ context.Context, err error) {
-	fmt.Printf("│ ❌ Tool Error: %v\n", err)
+	h.logPrintf("│ ❌ Tool Error: %v\n", err)
 	
 	h.mu.Lock()
 	if h.currentStep != nil {
@@ -234,22 +252,22 @@ func (h *PrettyReActHandler) HandleAgentAction(_ context.Context, action schema.
 	h.notifyStepUpdate("action")
 	h.mu.Unlock()
 
-	fmt.Printf("│ 🎯 Action: %s\n", action.Tool)
+	h.logPrintf("│ 🎯 Action: %s\n", action.Tool)
 
 	// full mode: show full input
 	if h.logMode == "full" {
-		fmt.Printf("│ 📥 Input (Full):\n")
+		h.logPrintf("│ 📥 Input (Full):\n")
 		for _, line := range strings.Split(action.ToolInput, "\n") {
-			fmt.Printf("│   %s\n", line)
+			h.logPrintf("│   %s\n", line)
 		}
 	} else {
 		// simple mode: truncated display
-		fmt.Printf("│ 📥 Input: %s\n", truncate(action.ToolInput, 100))
+		h.logPrintf("│ 📥 Input: %s\n", truncate(action.ToolInput, 100))
 	}
 
 	// Mark update_rich_context as not counting towards limit
 	if action.Tool == "update_rich_context" {
-		fmt.Printf("│ ℹ️  Note: This action does NOT count towards the 5-iteration limit\n")
+		h.logPrintf("│ ℹ️  Note: This action does NOT count towards the 5-iteration limit\n")
 	}
 }
 
@@ -266,12 +284,11 @@ func (h *PrettyReActHandler) HandleAgentFinish(_ context.Context, finish schema.
 		h.mu.Unlock()
 
 		if strings.Contains(output, "agent not finished") {
-			fmt.Printf("└─ ⚠️  Max iterations reached ────────────────────────────\n")
+			h.logPrintf("└─ ⚠️  Max iterations reached ────────────────────────────\n")
 		} else {
-			fmt.Printf("└─ ✅ Final Answer ──────────────────────────────────────\n")
-			fmt.Printf("   %s\n", truncate(output, 150))
-		}
-	}
+			h.logPrintf("└─ ✅ Final Answer ──────────────────────────────────\n")
+			h.logPrintf("   %s\n", truncate(output, 150))
+		}	}
 }
 
 func (h *PrettyReActHandler) HandleRetrieverStart(_ context.Context, query string) {}

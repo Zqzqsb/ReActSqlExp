@@ -55,6 +55,9 @@ type Pipeline struct {
 
 	// Streaming callback
 	stepCallback StepCallback
+
+	// Logger for structured output (stdout + file)
+	Logger *InferenceLogger
 }
 
 // Result inference result
@@ -122,6 +125,7 @@ func NewPipeline(llm llms.Model, adapter adapter.DBAdapter, config *Config) *Pip
 		config:       config,
 		schemaLinker: linker,
 		tokenizer:    tokenizer,
+		Logger:       NewInferenceLogger(),
 	}
 
 	// Set token recorder
@@ -129,6 +133,9 @@ func NewPipeline(llm llms.Model, adapter adapter.DBAdapter, config *Config) *Pip
 		p.promptTexts = append(p.promptTexts, prompt)
 		p.responseTexts = append(p.responseTexts, response)
 	}
+
+	// Share logger with schema linker
+	linker.logger = p.Logger
 
 	// Load Context file (if provided)
 	// Note: context always loaded for Schema Linking
@@ -196,7 +203,7 @@ func (p *Pipeline) Execute(ctx context.Context, query string) (*Result, error) {
 		})
 	}
 
-	fmt.Printf("📋 Selected Tables: %v\n\n", tables)
+	p.Logger.Printf("📋 Selected Tables: %v\n\n", tables)
 
 	// 2. Build Schema Context (basic table structure, always provided)
 	var contextPrompt string
@@ -212,12 +219,12 @@ func (p *Pipeline) Execute(ctx context.Context, query string) (*Result, error) {
 		}
 		contextPrompt = p.context.ExportToCompactPrompt(opts)
 		// Print summary only, not full Rich Context
-		fmt.Printf("📚 Using Rich Context for %d tables\n", len(tables))
+		p.Logger.Printf("📚 Using Rich Context for %d tables\n", len(tables))
 	} else {
 		// Use basic Schema (table+column names only)
 		contextPrompt = p.buildBasicSchema(ctx, tables)
 		// Skip full Basic Schema print
-		fmt.Printf("📋 Using Basic Schema for %d tables\n", len(tables))
+		p.Logger.Printf("📋 Using Basic Schema for %d tables\n", len(tables))
 	}
 
 	// 3. Generate SQL
@@ -238,7 +245,7 @@ func (p *Pipeline) Execute(ctx context.Context, query string) (*Result, error) {
 
 	// 4. Count tokens (from all accumulated prompts and responses)
 	// Token counting temporarily disabled to avoid potential issues
-	fmt.Printf("[DEBUG] Token counting disabled (would count %d prompts, %d responses)\n", len(p.promptTexts), len(p.responseTexts))
+	p.Logger.Printf("[DEBUG] Token counting disabled (would count %d prompts, %d responses)\n", len(p.promptTexts), len(p.responseTexts))
 	result.TotalTokens = 0 // temporarily set to 0
 
 	// if p.tokenizer != nil {

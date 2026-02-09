@@ -36,6 +36,7 @@ type LLMSchemaLinker struct {
 	adapter       adapter.DBAdapter
 	useReact      bool
 	tokenRecorder func(prompt, response string)
+	logger        *InferenceLogger
 }
 
 // NewLLMSchemaLinker creates LLM Schema Linker
@@ -84,7 +85,11 @@ If no tables are needed, output: none
 Output:`, schemaDesc.String(), query)
 
 	// Skip full Schema Linking prompt print
-	fmt.Println("🔍 Schema Linking...")
+	if l.logger != nil {
+		l.logger.Println("🔍 Schema Linking...")
+	} else {
+		fmt.Println("🔍 Schema Linking...")
+	}
 
 	// Call LLM with backoff retry
 	var response string
@@ -101,8 +106,13 @@ Output:`, schemaDesc.String(), query)
 		// If retries left, wait and retry
 		if attempt < maxRetries {
 			delay := backoffDelays[attempt]
-			fmt.Printf("⚠️  Schema Linking failed (attempt %d/%d): %v\n", attempt+1, maxRetries+1, err)
-			fmt.Printf("⏳ Retrying after %v...\n\n", delay)
+			if l.logger != nil {
+				l.logger.Printf("⚠️  Schema Linking failed (attempt %d/%d): %v\n", attempt+1, maxRetries+1, err)
+				l.logger.Printf("⏳ Retrying after %v...\n\n", delay)
+			} else {
+				fmt.Printf("⚠️  Schema Linking failed (attempt %d/%d): %v\n", attempt+1, maxRetries+1, err)
+				fmt.Printf("⏳ Retrying after %v...\n\n", delay)
+			}
 			time.Sleep(delay)
 		}
 	}
@@ -189,7 +199,11 @@ Output:`, schemaDesc.String(), query)
 
 // linkWithReact ReAct mode Schema Linking
 func (l *LLMSchemaLinker) linkWithReact(ctx context.Context, query string, allTables map[string]*TableInfo) ([]string, []ReActStep, error) {
-	fmt.Println("🔍 Schema Linking (ReAct mode)...")
+	if l.logger != nil {
+		l.logger.Println("🔍 Schema Linking (ReAct mode)...")
+	} else {
+		fmt.Println("🔍 Schema Linking (ReAct mode)...")
+	}
 
 	// Create SQL tool
 	sqlTool := &SQLTool{
@@ -198,7 +212,7 @@ func (l *LLMSchemaLinker) linkWithReact(ctx context.Context, query string, allTa
 	}
 
 	// Create handler to collect ReAct steps
-	reactHandler := &PrettyReActHandler{logMode: "simple"}
+	reactHandler := &PrettyReActHandler{logMode: "simple", logger: l.logger}
 
 	// Create ReAct Agent
 	// Strategy: tell model max 5 iterations (urgency), actual 15 (enough room)

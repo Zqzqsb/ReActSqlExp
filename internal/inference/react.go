@@ -16,11 +16,11 @@ import (
 func (p *Pipeline) oneShotGeneration(ctx context.Context, query string, contextPrompt string) (string, error) {
 	prompt := p.buildPrompt(query, contextPrompt, false)
 
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println(" SQL Generation (One-shot) - Prompt to LLM:")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println(prompt)
-	fmt.Println()
+	p.Logger.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	p.Logger.Println(" SQL Generation (One-shot) - Prompt to LLM:")
+	p.Logger.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	p.Logger.Println(prompt)
+	p.Logger.Println()
 
 	// Call LLM with backoff retry
 	var response string
@@ -37,8 +37,8 @@ func (p *Pipeline) oneShotGeneration(ctx context.Context, query string, contextP
 		// If retries left, wait and retry
 		if attempt < maxRetries {
 			delay := backoffDelays[attempt]
-			fmt.Printf("⚠️  SQL Generation failed (attempt %d/%d): %v\n", attempt+1, maxRetries+1, err)
-			fmt.Printf("⏳ Retrying after %v...\n\n", delay)
+		p.Logger.Printf("⚠️  SQL Generation failed (attempt %d/%d): %v\n", attempt+1, maxRetries+1, err)
+			p.Logger.Printf("⏳ Retrying after %v...\n\n", delay)
 			time.Sleep(delay)
 		}
 	}
@@ -51,20 +51,20 @@ func (p *Pipeline) oneShotGeneration(ctx context.Context, query string, contextP
 	p.promptTexts = append(p.promptTexts, prompt)
 	p.responseTexts = append(p.responseTexts, response)
 
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("💡 SQL Generation - LLM Response:")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println(response)
-	fmt.Println()
+	p.Logger.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	p.Logger.Println("💡 SQL Generation - LLM Response:")
+	p.Logger.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	p.Logger.Println(response)
+	p.Logger.Println()
 
 	// Extract SQL
 	sql := p.extractSQL(response)
 
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println(" Extracted SQL:")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println(sql)
-	fmt.Println()
+	p.Logger.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	p.Logger.Println(" Extracted SQL:")
+	p.Logger.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	p.Logger.Println(sql)
+	p.Logger.Println()
 
 	return sql, nil
 }
@@ -99,7 +99,7 @@ func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt st
 	}
 
 	// Create handler to collect ReAct steps
-	reactHandler := &PrettyReActHandler{logMode: p.config.LogMode}
+	reactHandler := &PrettyReActHandler{logMode: p.config.LogMode, logger: p.Logger}
 
 	// Set up streaming callback if available (for real-time step notifications)
 	if p.stepCallback != nil {
@@ -135,20 +135,20 @@ func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt st
 	prompt := p.buildPrompt(query, contextPrompt, true)
 
 	// Print key info only, skip full prompt（avoid duplicate Best Practices etc.）
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("🔄 Starting ReAct Loop (Claimed %d, Actual Max %d iterations)\n", claimedMaxIterations, actualMaxIterations)
-	fmt.Printf("Question: %s\n", query)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	p.Logger.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	p.Logger.Printf("🔄 Starting ReAct Loop (Claimed %d, Actual Max %d iterations)\n", claimedMaxIterations, actualMaxIterations)
+	p.Logger.Printf("Question: %s\n", query)
+	p.Logger.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	agentResult, err := executor.Call(ctx, map[string]any{"input": prompt})
 	if err != nil {
-		fmt.Printf("\n❌ ReAct Loop failed: %v\n\n", err)
+		p.Logger.Printf("\n❌ ReAct Loop failed: %v\n\n", err)
 		return "", err
 	}
 
-	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("✅ ReAct Loop completed successfully")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	p.Logger.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	p.Logger.Println("✅ ReAct Loop completed successfully")
+	p.Logger.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Collect ReAct steps from handler
 	collectedSteps := reactHandler.GetCollectedSteps()
