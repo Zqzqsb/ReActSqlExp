@@ -55,8 +55,24 @@ download_gdrive() {
     if [ "$HAS_GDOWN" = true ]; then
         gdown "$file_id" -O "$output"
     elif [ "$DOWNLOADER" = "curl" ]; then
-        curl -L --progress-bar -o "$output" \
-            "https://drive.usercontent.google.com/download?id=${file_id}&export=download&confirm=t"
+        # For large files, Google Drive requires a cookie-based confirmation.
+        # Step 1: request the file, capture cookies
+        local cookie_file
+        cookie_file=$(mktemp)
+        curl -sc "$cookie_file" -L \
+            "https://drive.google.com/uc?export=download&id=${file_id}" -o /dev/null 2>/dev/null
+
+        # Step 2: extract the confirmation token from cookies or response
+        local confirm_code
+        confirm_code=$(grep -oP 'download_warning_[^\s]*\s+\K[^\s]+' "$cookie_file" 2>/dev/null || true)
+        if [ -z "$confirm_code" ]; then
+            confirm_code="t"
+        fi
+
+        # Step 3: download with the confirmation token and cookies
+        curl -Lb "$cookie_file" --progress-bar -o "$output" \
+            "https://drive.usercontent.google.com/download?id=${file_id}&export=download&confirm=${confirm_code}"
+        rm -f "$cookie_file"
     else
         wget --progress=bar:force -O "$output" \
             "https://drive.usercontent.google.com/download?id=${file_id}&export=download&confirm=t" 2>&1
@@ -67,9 +83,18 @@ download_gdrive() {
 verify_zip() {
     local filepath="$1"
     local desc="$2"
+    # Primary check: use file magic
     if ! file "$filepath" | grep -qi "zip"; then
-        rm -f "$filepath"
-        error "Downloaded $desc is not a valid zip file.\n  Google Drive may have returned an HTML error page.\n  Install gdown (pip install gdown) and retry, or download manually."
+        # Secondary check: look at file header (PK magic bytes)
+        if ! head -c 4 "$filepath" | grep -qP '\x50\x4b\x03\x04' 2>/dev/null; then
+            # Check if it's an HTML page (Google Drive error/confirmation page)
+            if head -c 200 "$filepath" | grep -qi '<html'; then
+                rm -f "$filepath"
+                error "Downloaded $desc is an HTML page, not a zip file.\n  Google Drive returned an error or confirmation page.\n  Install gdown (pip install gdown) and retry, or download manually."
+            fi
+            rm -f "$filepath"
+            error "Downloaded $desc is not a valid zip file.\n  Google Drive may have returned an HTML error page.\n  Install gdown (pip install gdown) and retry, or download manually."
+        fi
     fi
 }
 
@@ -95,21 +120,23 @@ else
     verify_zip "$SPIDER_TMP" "Spider dataset"
 
     info "Extracting Spider databases..."
-    unzip -q "$SPIDER_TMP" "spider/database/*" -d "$PROJECT_ROOT/benchmarks/" 2>/dev/null \
-        || unzip -q "$SPIDER_TMP" -d "$PROJECT_ROOT/benchmarks/spider/_extract_tmp"
+    SPIDER_EXTRACT_DIR="$PROJECT_ROOT/benchmarks/spider/_extract_tmp"
+    mkdir -p "$SPIDER_EXTRACT_DIR"
+    unzip -q "$SPIDER_TMP" -d "$SPIDER_EXTRACT_DIR" || error "unzip failed for Spider. The file may be corrupted."
+    rm -f "$SPIDER_TMP"
+    # Clean up macOS artifacts
+    rm -rf "$SPIDER_EXTRACT_DIR/__MACOSX"
 
-    # Handle different zip structures
+    # Handle different zip structures: look for "database" directory anywhere in extracted content
+    # Known structures: spider/database/*, spider_data/database/*
     if [ ! -d "$SPIDER_DB_DIR" ]; then
-        if [ -d "$PROJECT_ROOT/benchmarks/spider/_extract_tmp" ]; then
-            DB_FOUND=$(find "$PROJECT_ROOT/benchmarks/spider/_extract_tmp" -type d -name "database" | head -1)
-            if [ -n "$DB_FOUND" ]; then
-                mv "$DB_FOUND" "$SPIDER_DB_DIR"
-            fi
-            rm -rf "$PROJECT_ROOT/benchmarks/spider/_extract_tmp"
+        DB_FOUND=$(find "$SPIDER_EXTRACT_DIR" -type d -name "database" | head -1)
+        if [ -n "$DB_FOUND" ]; then
+            mv "$DB_FOUND" "$SPIDER_DB_DIR"
         fi
     fi
-
-    rm -f "$SPIDER_TMP"
+    # Clean up temp extraction directory
+    rm -rf "$SPIDER_EXTRACT_DIR"
 
     if [ -d "$SPIDER_DB_DIR" ] && [ "$(ls -A "$SPIDER_DB_DIR")" ]; then
         info "Spider databases ready. ($(ls "$SPIDER_DB_DIR" | wc -l) databases)"
@@ -139,18 +166,36 @@ else
     verify_zip "$BIRD_TMP" "BIRD databases"
 
     info "Extracting BIRD databases..."
-    unzip -q "$BIRD_TMP" -d "$(dirname "$BIRD_DB_DIR")"
+    BIRD_EXTRACT_DIR="$(dirname "$BIRD_DB_DIR")/_bird_extract_tmp"
+    mkdir -p "$BIRD_EXTRACT_DIR"
+    unzip -q "$BIRD_TMP" -d "$BIRD_EXTRACT_DIR" || error "unzip failed for BIRD databases. The file may be corrupted."
     rm -f "$BIRD_TMP"
     # Clean up macOS artifacts
-    rm -rf "$PROJECT_ROOT/benchmarks/bird/dev/__MACOSX"
+    rm -rf "$BIRD_EXTRACT_DIR/__MACOSX"
 
-    # Handle different zip structures: the zip might contain a top-level folder
+    # Handle different zip structures: look for dev_databases anywhere in extracted content
     if [ ! -d "$BIRD_DB_DIR" ]; then
-        BIRD_FOUND=$(find "$(dirname "$BIRD_DB_DIR")" -maxdepth 2 -type d -name "dev_databases" | head -1)
-        if [ -n "$BIRD_FOUND" ] && [ "$BIRD_FOUND" != "$BIRD_DB_DIR" ]; then
+        BIRD_FOUND=$(find "$BIRD_EXTRACT_DIR" -type d -name "dev_databases" | head -1)
+        if [ -n "$BIRD_FOUND" ]; then
             mv "$BIRD_FOUND" "$BIRD_DB_DIR"
+        else
+            # If there's no dev_databases folder, check if the zip directly contains DB folders
+            # (e.g., folders with .sqlite files inside)
+            SQLITE_FOUND=$(find "$BIRD_EXTRACT_DIR" -name "*.sqlite" -type f | head -1)
+            if [ -n "$SQLITE_FOUND" ]; then
+                # Find the parent directory that contains all DB subdirectories
+                SQLITE_PARENT=$(dirname "$(dirname "$SQLITE_FOUND")")
+                if [ "$SQLITE_PARENT" = "$BIRD_EXTRACT_DIR" ]; then
+                    # DB folders are directly in extract dir
+                    mv "$BIRD_EXTRACT_DIR" "$BIRD_DB_DIR"
+                else
+                    mv "$SQLITE_PARENT" "$BIRD_DB_DIR"
+                fi
+            fi
         fi
     fi
+    # Clean up temp extraction directory if it still exists
+    rm -rf "$BIRD_EXTRACT_DIR"
 
     if [ -d "$BIRD_DB_DIR" ] && [ "$(ls -A "$BIRD_DB_DIR")" ]; then
         info "BIRD databases ready. ($(ls "$BIRD_DB_DIR" | wc -l) databases)"
