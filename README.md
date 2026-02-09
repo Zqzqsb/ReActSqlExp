@@ -1,79 +1,93 @@
-# ReAct SQL - Text2SQL Experiment Toolkit
+# ReAct SQL — Text2SQL Experiment Toolkit
+
+<p align="center">
+  <img src="pics/rc_gen.png" width="680" alt="ReAct SQL Rich Context Generation" />
+</p>
+
+A **Text2SQL** experiment framework built on the **ReAct paradigm** and **Rich Context**. Achieves **94.39%** execution accuracy (EX) on the calibrated Spider 1.0 dev set.
+
+This repository provides a complete experiment reproduction toolchain, including Rich Context generation, Text2SQL evaluation, and result analysis.
+
+<details>
+<summary>🇨🇳 中文说明</summary>
 
 基于 **ReAct 范式**和 **Rich Context** 的 Text2SQL 实验框架。在校准后的 Spider 1.0 dev 数据集上达到 **94.39%** 执行准确率 (EX)。
 
 本仓库提供完整的实验复现工具链，包括 Rich Context 生成、Text2SQL 评估、结果分析等。
 
+</details>
+
 ## Quick Start
 
 ```bash
-# 1. 克隆仓库
+# 1. Clone the repo
 git clone <repo-url> && cd ReActSqlExp
 
-# 2. 下载数据集（Spider databases + BIRD databases）
+# 2. Download datasets (Spider databases + BIRD databases)
 bash scripts/download_datasets.sh
 
-# 3. 配置 LLM
+# 3. Configure LLM
 cp llm_config.json.example llm_config.json
-# 编辑 llm_config.json，填入你的 API Key
+# Edit llm_config.json and fill in your API Key
 
-# 4. 生成 Rich Context（以 Spider 某个数据库为例）
+# 4. Generate Rich Context (e.g. for a Spider database)
 go run ./cmd/gen_rich_context_spider --config dbs/spider/concert_singer.json
 
-# 5. 运行评估
+# 5. Run evaluation
 go run ./cmd/eval_spider --use-rich-context --use-react
 ```
 
 ## Prerequisites
 
 - **Go** >= 1.21
-- **LLM API**: 支持 OpenAI 兼容接口的模型（DeepSeek-V3, Qwen-3 Max, GLM-4.7, Kimi-K2 等）
-- **curl**（或 wget）+ **unzip**：用于下载数据集
-- **gdown**（推荐）：`pip install gdown`，用于可靠地从 Google Drive 下载大文件
+- **LLM API**: Any OpenAI-compatible model (DeepSeek-V3, Qwen-3 Max, GLM-4.7, Kimi-K2, etc.)
+- **curl** (or wget) + **unzip**: For dataset download
+- **gdown** (recommended): `pip install gdown`, for reliable Google Drive downloads
 
 ## Project Structure
 
 ```
 ReActSqlExp/
-├── cmd/                              # 命令行工具入口
-│   ├── eval_spider/                  # Spider 数据集评估
-│   ├── eval_bird/                    # BIRD 数据集评估
-│   ├── gen_rich_context_spider/      # Spider Rich Context 生成
-│   ├── gen_rich_context_bird/        # BIRD Rich Context 生成
-│   ├── extract_result_fields/        # 从 Gold SQL 提取结果字段描述
-│   └── analyze_results/              # 评估结果分析器
-├── internal/                         # 核心库代码
-│   ├── adapter/                      # 数据库适配器（SQLite/MySQL/PostgreSQL）
-│   ├── agent/                        # 多 Agent 系统（Coordinator + Worker）
-│   ├── context/                      # Rich Context 管理
-│   ├── inference/                    # Text2SQL 推理管线（ReAct 循环）
-│   ├── llm/                          # LLM 配置管理
-│   └── logger/                       # 日志工具
-├── benchmarks/                       # 数据集
-│   ├── spider/                       # Spider 原始数据集（database/ 需下载）
-│   ├── spider_corrected/             # 校准后的 Spider dev 集（已含字段描述）
-│   └── bird/                         # BIRD 数据集（dev_databases/ 需下载）
-├── contexts/                         # Rich Context（含 20 个 Spider + 2 个 BIRD 示例）
-│   ├── DATA_QUALITY_REPORT.md        # Spider 数据质量分析报告
+├── cmd/                              # CLI entry points
+│   ├── eval_spider/                  # Spider dataset evaluation
+│   ├── eval_bird/                    # BIRD dataset evaluation
+│   ├── gen_rich_context_spider/      # Spider Rich Context generation
+│   ├── gen_rich_context_bird/        # BIRD Rich Context generation
+│   ├── gen_all_dev/                  # Batch Rich Context generation (all dev DBs)
+│   ├── extract_result_fields/        # Extract result field descriptions from Gold SQL
+│   └── analyze_results/              # Result analyzer
+├── internal/                         # Core libraries
+│   ├── adapter/                      # Database adapters (SQLite/MySQL/PostgreSQL)
+│   ├── agent/                        # Multi-Agent system (Coordinator + Worker)
+│   ├── context/                      # Rich Context management
+│   ├── inference/                    # Text2SQL inference pipeline (ReAct loop)
+│   ├── llm/                          # LLM configuration
+│   └── logger/                       # Logging utilities
+├── benchmarks/                       # Datasets
+│   ├── spider/                       # Spider original (database/ needs download)
+│   ├── spider_corrected/             # Calibrated Spider dev set (with field descriptions)
+│   └── bird/                         # BIRD dataset (dev_databases/ needs download)
+├── contexts/                         # Rich Context (20 Spider + 2 BIRD examples)
+│   ├── DATA_QUALITY_REPORT.md        # Spider data quality analysis report
 │   └── sqlite/
-│       ├── spider/                   # Spider 数据库的 Rich Context
-│       └── bird/                     # BIRD 数据库的 Rich Context
-├── results/                          # 实验结果
-│   └── spider/qwen-final/            # Spider 最终结果 (94.39% EX)
-├── dbs/spider/                       # Spider 数据库配置（166 个库）
+│       ├── spider/                   # Spider database Rich Contexts
+│       └── bird/                     # BIRD database Rich Contexts
+├── results/                          # Experiment results
+│   └── spider/qwen-final/           # Spider final results (94.39% EX)
+├── dbs/spider/                       # Spider database configs (166 DBs)
 ├── scripts/
-│   ├── download_datasets.sh          # 一键下载数据集
-│   ├── stash_data.sh                 # 暂存数据（模拟全新环境）
-│   └── restore_data.sh              # 恢复暂存数据
-├── llm_config.json.example           # LLM 配置示例
-└── dbs/sqlite/                       # SQLite 数据库配置示例
+│   ├── download_datasets.sh          # One-click dataset download
+│   ├── stash_data.sh                 # Stash data (simulate fresh clone)
+│   └── restore_data.sh              # Restore stashed data
+├── llm_config.json.example           # LLM config template
+└── dbs/sqlite/                       # SQLite database config examples
 ```
 
 ## Configuration
 
-### LLM 配置
+### LLM Configuration
 
-复制模板并填入 API Key：
+Copy the template and fill in your API Key:
 
 ```bash
 cp llm_config.json.example llm_config.json
@@ -94,63 +108,75 @@ cp llm_config.json.example llm_config.json
 }
 ```
 
+Any OpenAI-compatible model is supported. `llm_config.json` is placed at the project root and is included in `.gitignore`.
+
+<details>
+<summary>🇨🇳 中文</summary>
+
 支持任何 OpenAI 兼容接口的模型。`llm_config.json` 放在项目根目录，已加入 `.gitignore`。
 
-### 数据集下载
+</details>
+
+### Dataset Download
 
 ```bash
 bash scripts/download_datasets.sh
 ```
 
-该脚本会下载两个数据库文件目录（需 wget + unzip）：
-- **Spider 1.0 databases** (~840MB) -> `benchmarks/spider/database/`
-- **BIRD dev databases** (~1.4GB) -> `benchmarks/bird/dev/dev_databases/`
+This script downloads two database directories (requires wget + unzip):
+- **Spider 1.0 databases** (~840MB) → `benchmarks/spider/database/`
+- **BIRD dev databases** (~1.4GB) → `benchmarks/bird/dev/dev_databases/`
 
-以下内容**已包含在仓库中**，无需额外下载：
-- 校准后的 Spider dev 集（221 条标注修正）：`benchmarks/spider_corrected/`
-- 20 个 Spider + 2 个 BIRD 的 Rich Context 示例：`contexts/sqlite/`
-- Spider 数据质量分析报告：`contexts/DATA_QUALITY_REPORT.md`
-- Spider 数据库配置文件（166 个）：`dbs/spider/`
+The following are **already included in the repo** — no extra download needed:
+- Calibrated Spider dev set (221 annotation fixes): `benchmarks/spider_corrected/`
+- 20 Spider + 2 BIRD Rich Context examples: `contexts/sqlite/`
+- Spider data quality report: `contexts/DATA_QUALITY_REPORT.md`
+- Spider database configs (166): `dbs/spider/`
 
 ## Experiment Pipeline
 
-### Step 1: 生成 Rich Context
+### Step 1: Generate Rich Context
+
+Rich Context is the core of this method. A multi-agent system automatically analyzes database structure and generates structured context including field semantics, JOIN paths, data characteristics, and more.
+
+<details>
+<summary>🇨🇳 中文</summary>
 
 Rich Context 是本方法的核心，通过多 Agent 系统自动分析数据库结构，生成包含字段语义、JOIN 路径、数据特征等的结构化上下文。
 
-**Spider 数据集：**
+</details>
+
+**Spider:**
 
 ```bash
-# 单个数据库
+# Single database
 go run ./cmd/gen_rich_context_spider --config dbs/spider/concert_singer.json
 
-# 使用其他模型
+# Use a different model
 go run ./cmd/gen_rich_context_spider --v3.2 --config dbs/spider/concert_singer.json
 
-# 批量生成
-for config in dbs/spider/*.json; do
-  go run ./cmd/gen_rich_context_spider --config "$config"
-done
+# Batch: all dev databases (with Docker-style progress bar)
+go run ./cmd/gen_all_dev --benchmark spider --workers 4
 ```
 
-**BIRD 数据集：**
+**BIRD:**
 
 ```bash
-# 单个数据库
+# Single database
 go run ./cmd/gen_rich_context_bird --db card_games
 
-# 批量（3 并发）
-go run ./cmd/gen_rich_context_bird --workers 3
+# Batch (3 concurrent workers)
+go run ./cmd/gen_all_dev --benchmark bird --workers 3
 
-# 跳过已存在的
-go run ./cmd/gen_rich_context_bird --workers 3 --skip-existing
+# Skip existing
+go run ./cmd/gen_all_dev --benchmark bird --workers 3
 ```
 
-生成的 Rich Context 保存在 `contexts/sqlite/spider/` 和 `contexts/sqlite/bird/`。
+Generated Rich Contexts are saved to `contexts/sqlite/spider/` and `contexts/sqlite/bird/`.
 
-### Step 2: 提取结果字段描述（可选前置步骤）
+### Step 2: Extract Result Field Descriptions (Optional)
 
-从 Gold SQL 中提取查询应返回的字段及描述，用于字段对齐评估：
+Extract query result fields and descriptions from Gold SQL for field-alignment evaluation:
 
 ```bash
 go run ./cmd/extract_result_fields \
@@ -158,7 +184,7 @@ go run ./cmd/extract_result_fields \
   --output benchmarks/spider/dev_with_fields.json
 ```
 
-输出格式示例：
+Output format example:
 
 ```json
 {
@@ -170,61 +196,61 @@ go run ./cmd/extract_result_fields \
 }
 ```
 
-### Step 3: 运行评估
+### Step 3: Run Evaluation
 
-**Spider 评估：**
+**Spider:**
 
 ```bash
-# Baseline（无 Rich Context，无 ReAct）
+# Baseline (no Rich Context, no ReAct)
 go run ./cmd/eval_spider
 
-# 使用 Rich Context
+# With Rich Context
 go run ./cmd/eval_spider --use-rich-context
 
-# 使用 ReAct 循环
+# With ReAct loop
 go run ./cmd/eval_spider --use-react
 
-# 完整配置（Rich Context + ReAct）
+# Full config (Rich Context + ReAct)
 go run ./cmd/eval_spider --use-rich-context --use-react
 
-# 指定模型
+# Specify model
 go run ./cmd/eval_spider --v3.2 --use-rich-context --use-react
 
-# 指定范围（调试用）
+# Specify range (for debugging)
 go run ./cmd/eval_spider --start 0 --end 100 --use-rich-context --use-react
 
-# 字段澄清模式
+# Field clarification mode
 go run ./cmd/eval_spider --use-rich-context --use-react --clarify force
 ```
 
-**BIRD 评估：**
+**BIRD:**
 
 ```bash
-# 完整评估
+# Full evaluation
 go run ./cmd/eval_bird --use-rich-context --use-react
 
-# 按难度过滤
+# Filter by difficulty
 go run ./cmd/eval_bird --difficulty simple --use-rich-context
 
-# 限制数量
+# Limit number of queries
 go run ./cmd/eval_bird --limit 100 --use-rich-context
 ```
 
-### Step 4: 分析结果
+### Step 4: Analyze Results
 
 ```bash
 go run ./cmd/analyze_results --input results/spider/<your-result-dir>/results.json
 ```
 
-分析器会自动分类结果（精确匹配、语义等价、行数错误、数据不一致等）并生成统计报告。
+The analyzer automatically classifies results (exact match, semantic equivalence, row count errors, data inconsistencies, etc.) and generates statistical reports.
 
 ## Utility Scripts
 
 ```bash
-# 暂存所有数据到 .data_stash/（模拟全新克隆环境，幂等）
+# Stash all data to .data_stash/ (simulate a fresh clone, idempotent)
 bash scripts/stash_data.sh
 
-# 恢复暂存的数据（幂等）
+# Restore stashed data (idempotent)
 bash scripts/restore_data.sh
 ```
 
@@ -259,7 +285,14 @@ bash scripts/restore_data.sh
 
 ### Dataset Calibration
 
+This project systematically calibrated the Spider dev dataset, correcting **221 annotation errors** (21.4% of total samples), including ambiguous queries, labeling mistakes, and data quality issues. The calibrated dataset is at `benchmarks/spider_corrected/`. See `contexts/DATA_QUALITY_REPORT.md` for the detailed data quality analysis.
+
+<details>
+<summary>🇨🇳 中文</summary>
+
 本项目对 Spider dev 数据集进行了系统校准，修正了 **221 个标注错误**（占总样本的 21.4%），包括歧义查询、标注错误、数据质量问题等。校准后的数据集位于 `benchmarks/spider_corrected/`。详细的数据质量分析见 `contexts/DATA_QUALITY_REPORT.md`。
+
+</details>
 
 ## Eval Parameters Reference
 
@@ -286,11 +319,19 @@ bash scripts/restore_data.sh
 | `--dev` | dev.json path | `benchmarks/bird/dev/dev.json` |
 | `--db-dir` | Database directory | `benchmarks/bird/dev/dev_databases` |
 | `--context-dir` | Rich Context directory | `contexts/sqlite/bird` |
-| `--model` | 模型类型 | `deepseek-v3` |
+| `--model` | Model type | `deepseek-v3` |
 | `--use-rich-context` | Enable Rich Context | `false` |
 | `--use-react` | Enable ReAct loop | `false` |
 | `--difficulty` | Filter by difficulty | all |
 | `--limit` | Max number of queries | `0` (all) |
+
+### gen_all_dev
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--benchmark` | Benchmark name (`spider` / `bird`) | *required* |
+| `--workers` | Number of concurrent workers | `2` |
+| `--v3.2` | Use DeepSeek-V3.2 | `false` |
 
 ## License
 
