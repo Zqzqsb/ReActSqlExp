@@ -528,10 +528,7 @@ func main() {
 	ctx := context.Background()
 
 	// Memory tracking
-	var initialMem runtime.MemStats
-	runtime.ReadMemStats(&initialMem)
-	fmt.Printf("[Memory] Initial — Alloc: %d MB, Sys: %d MB\n\n",
-		initialMem.Alloc/1024/1024, initialMem.Sys/1024/1024)
+	logMemory("Initial", 0)
 
 	for i, example := range examples {
 		fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
@@ -672,17 +669,8 @@ func main() {
 		// GC after each sample
 		runtime.GC()
 
-		// Memory report every 50 samples
-		if (i+1)%50 == 0 {
-			var m runtime.MemStats
-			runtime.ReadMemStats(&m)
-			fmt.Printf("\n[Memory] Sample %d — Alloc: %d MB, HeapInUse: %d MB, GC: %d\n\n",
-				i+1, m.Alloc/1024/1024, m.HeapInuse/1024/1024, m.NumGC)
-		} else if (i+1)%10 == 0 {
-			var m runtime.MemStats
-			runtime.ReadMemStats(&m)
-			fmt.Printf("[Memory] Sample %d — Alloc: %d MB\n", i+1, m.Alloc/1024/1024)
-		}
+		// Memory report after EVERY sample (with RSS)
+		logMemory("After", i+1)
 	}
 
 	// JSON array is already properly closed after each iteration (crash-safe)
@@ -939,6 +927,36 @@ func loadBirdDev(path string) ([]BirdExample, error) {
 		return nil, err
 	}
 	return examples, nil
+}
+
+// getProcessRSSMB reads the real RSS (Resident Set Size) from /proc/self/status.
+// This captures memory allocated by CGo (e.g. go-sqlite3) that Go's runtime.ReadMemStats cannot see.
+func getProcessRSSMB() int64 {
+	data, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return -1
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "VmRSS:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				var kb int64
+				if _, err := fmt.Sscanf(fields[1], "%d", &kb); err == nil {
+					return kb / 1024 // return MB
+				}
+			}
+		}
+	}
+	return -1
+}
+
+// logMemory prints a memory report line with both Go heap and OS RSS.
+func logMemory(label string, sampleIdx int) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	rssMB := getProcessRSSMB()
+	fmt.Printf("[Memory] %s #%d — GoHeap: %d MB, HeapInUse: %d MB, GoSys: %d MB, RSS: %d MB, GC: %d\n",
+		label, sampleIdx, m.Alloc/1024/1024, m.HeapInuse/1024/1024, m.Sys/1024/1024, rssMB, m.NumGC)
 }
 
 func parseModelType(modelType string) llm.ModelType {

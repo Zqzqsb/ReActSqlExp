@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // SQLiteAdapter SQLite adapter
@@ -29,7 +29,7 @@ func NewSQLiteAdapter(config *SQLiteConfig) *SQLiteAdapter {
 
 // Connect connects to database
 func (a *SQLiteAdapter) Connect(ctx context.Context) error {
-	db, err := sql.Open("sqlite3", a.config.FilePath)
+	db, err := sql.Open("sqlite", a.config.FilePath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
