@@ -9,9 +9,35 @@
 #       is already included in the repository.
 #
 # Prerequisites: curl (or wget), unzip
-# Usage: bash scripts/download_datasets.sh
+# Usage: bash scripts/download_datasets.sh [--proxy host:port]
+#
+# Options:
+#   --proxy HOST:PORT    Use proxy for downloads (default: 127.0.0.1:7890)
 
 set -e
+
+PROXY=""
+USE_PROXY=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --proxy)
+            USE_PROXY=true
+            if [[ -n "$2" && "$2" != --* ]]; then
+                PROXY="$2"
+                shift
+            else
+                PROXY="127.0.0.1:7890"
+            fi
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: bash scripts/download_datasets.sh [--proxy host:port]"
+            exit 1
+            ;;
+    esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -24,6 +50,10 @@ NC='\033[0m'
 info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+
+if [ "$USE_PROXY" = true ]; then
+    info "Using proxy: $PROXY"
+fi
 
 command -v unzip >/dev/null 2>&1 || error "unzip is required. Install: sudo apt install unzip"
 
@@ -53,13 +83,22 @@ download_gdrive() {
 
     info "Downloading $desc ..."
     if [ "$HAS_GDOWN" = true ]; then
-        gdown "$file_id" -O "$output"
+        if [ "$USE_PROXY" = true ]; then
+            https_proxy="http://$PROXY" http_proxy="http://$PROXY" gdown "$file_id" -O "$output"
+        else
+            gdown "$file_id" -O "$output"
+        fi
     elif [ "$DOWNLOADER" = "curl" ]; then
+        local proxy_args=""
+        if [ "$USE_PROXY" = true ]; then
+            proxy_args="-x http://$PROXY"
+        fi
+        
         # For large files, Google Drive requires a cookie-based confirmation.
         # Step 1: request the file, capture cookies
         local cookie_file
         cookie_file=$(mktemp)
-        curl -sc "$cookie_file" -L \
+        curl -sc "$cookie_file" -L $proxy_args \
             "https://drive.google.com/uc?export=download&id=${file_id}" -o /dev/null 2>/dev/null
 
         # Step 2: extract the confirmation token from cookies or response
@@ -70,11 +109,16 @@ download_gdrive() {
         fi
 
         # Step 3: download with the confirmation token and cookies
-        curl -Lb "$cookie_file" --progress-bar -o "$output" \
+        curl -Lb "$cookie_file" --progress-bar $proxy_args -o "$output" \
             "https://drive.usercontent.google.com/download?id=${file_id}&export=download&confirm=${confirm_code}"
         rm -f "$cookie_file"
     else
-        wget --progress=bar:force -O "$output" \
+        local proxy_args=""
+        if [ "$USE_PROXY" = true ]; then
+            proxy_args="-e use_proxy=yes -e http_proxy=http://$PROXY -e https_proxy=http://$PROXY"
+        fi
+        
+        wget --progress=bar:force $proxy_args -O "$output" \
             "https://drive.usercontent.google.com/download?id=${file_id}&export=download&confirm=t" 2>&1
     fi
 }
@@ -214,9 +258,8 @@ echo ""
 echo "  Spider databases:      $SPIDER_DB_DIR"
 echo "  BIRD databases:        $BIRD_DB_DIR"
 echo "  Corrected Spider dev:  $PROJECT_ROOT/benchmarks/spider_corrected/ (already in repo)"
-echo "  Quality report:        $PROJECT_ROOT/contexts/DATA_QUALITY_REPORT.md"
 echo ""
 info "Next steps:"
 echo "  1. cp llm_config.json.example llm_config.json  # Configure your LLM API key"
-echo "  2. go run ./cmd/gen_rich_context_spider --config dbs/spider/concert_singer.json"
-echo "  3. go run ./cmd/eval_spider --use-rich-context --use-react"
+echo "  2. go run ./cmd/gen_all_dev                    # Generate Rich Context (interactive)"
+echo "  3. go run ./cmd/eval                           # Run evaluation (interactive)"
