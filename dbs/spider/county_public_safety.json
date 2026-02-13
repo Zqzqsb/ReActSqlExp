@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/county_public_safety/county_public_safety.sqlite",
-  "database": "county_public_safety",
-  "description": "Spider benchmark database: county_public_safety"
-}

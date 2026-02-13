@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/driving_school/driving_school.sqlite",
-  "database": "driving_school",
-  "description": "Spider benchmark database: driving_school"
-}

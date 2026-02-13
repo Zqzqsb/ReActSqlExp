@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/theme_gallery/theme_gallery.sqlite",
-  "database": "theme_gallery",
-  "description": "Spider benchmark database: theme_gallery"
-}

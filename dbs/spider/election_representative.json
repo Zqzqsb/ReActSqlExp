@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/election_representative/election_representative.sqlite",
-  "database": "election_representative",
-  "description": "Spider benchmark database: election_representative"
-}

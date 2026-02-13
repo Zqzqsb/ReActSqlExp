@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/twitter_1/twitter_1.sqlite",
-  "database": "twitter_1",
-  "description": "Spider benchmark database: twitter_1"
-}

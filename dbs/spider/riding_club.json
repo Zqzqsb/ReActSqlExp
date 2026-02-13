@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/riding_club/riding_club.sqlite",
-  "database": "riding_club",
-  "description": "Spider benchmark database: riding_club"
-}

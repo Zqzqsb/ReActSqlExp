@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/restaurants/restaurants.sqlite",
-  "database": "restaurants",
-  "description": "Spider benchmark database: restaurants"
-}

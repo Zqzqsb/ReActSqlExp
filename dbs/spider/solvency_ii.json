@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/solvency_ii/solvency_ii.sqlite",
-  "database": "solvency_ii",
-  "description": "Spider benchmark database: solvency_ii"
-}

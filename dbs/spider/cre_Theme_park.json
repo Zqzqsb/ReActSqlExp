@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/cre_Theme_park/cre_Theme_park.sqlite",
-  "database": "cre_Theme_park",
-  "description": "Spider benchmark database: cre_Theme_park"
-}

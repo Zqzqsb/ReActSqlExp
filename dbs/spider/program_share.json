@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/program_share/program_share.sqlite",
-  "database": "program_share",
-  "description": "Spider benchmark database: program_share"
-}

@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/assets_maintenance/assets_maintenance.sqlite",
-  "database": "assets_maintenance",
-  "description": "Spider benchmark database: assets_maintenance"
-}

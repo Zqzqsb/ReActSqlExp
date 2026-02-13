@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/race_track/race_track.sqlite",
-  "database": "race_track",
-  "description": "Spider benchmark database: race_track"
-}

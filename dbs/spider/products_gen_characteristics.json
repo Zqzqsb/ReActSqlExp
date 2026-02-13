@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/products_gen_characteristics/products_gen_characteristics.sqlite",
-  "database": "products_gen_characteristics",
-  "description": "Spider benchmark database: products_gen_characteristics"
-}

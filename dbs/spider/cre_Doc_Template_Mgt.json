@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/cre_Doc_Template_Mgt/cre_Doc_Template_Mgt.sqlite",
-  "database": "cre_Doc_Template_Mgt",
-  "description": "Spider benchmark database: cre_Doc_Template_Mgt"
-}

@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/customers_campaigns_ecommerce/customers_campaigns_ecommerce.sqlite",
-  "database": "customers_campaigns_ecommerce",
-  "description": "Spider benchmark database: customers_campaigns_ecommerce"
-}

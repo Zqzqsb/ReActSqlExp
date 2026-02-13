@@ -1,6 +1,0 @@
-{
-  "type": "sqlite",
-  "file_path": "benchmarks/spider/database/yelp/yelp.sqlite",
-  "database": "yelp",
-  "description": "Spider benchmark database: yelp"
-}
