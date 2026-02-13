@@ -95,7 +95,49 @@ func main() {
 		log.Fatalf("Unknown benchmark: %s. Use 'spider' or 'bird'.", *benchmark)
 	}
 
-	// ── Step 2: Resolve paths ──
+	// ── Step 2: Select model (if not provided via flag) ──
+	if *modelType == "deepseek-v3" && flag.NFlag() == 0 {
+		// Only show interactive menu if no flags were provided (pure interactive mode)
+		fmt.Println()
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Println("🤖 Select Model")
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		
+		// Load config to show available models
+		cfg := llm.GetConfig()
+		modelOptions := []struct {
+			key         string
+			displayName string
+			modelName   string
+		}{
+			{"deepseek-v3", "DeepSeek-V3 (Volcano)", cfg.DeepSeekV3.ModelName},
+			{"deepseek-v3.2", "DeepSeek-V3.2 (Volcano)", cfg.DeepSeekV32.ModelName},
+			{"qwen-max", "Qwen-Max (Aliyun)", cfg.QwenMax.ModelName},
+			{"qwen3-max", "Qwen3-Max (Aliyun)", cfg.Qwen3Max.ModelName},
+			{"ali-deepseek-v3.2", "DeepSeek-V3.2 (Aliyun)", cfg.AliDeepSeek.ModelName},
+		}
+		
+		for i, opt := range modelOptions {
+			fmt.Printf("  %d. %-25s — %s\n", i+1, opt.displayName, opt.modelName)
+		}
+		fmt.Println()
+		fmt.Print("Enter choice [1-5] (default: 1): ")
+		
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+		if input == "" {
+			input = "1"
+		}
+		
+		var choice int
+		if _, err := fmt.Sscanf(input, "%d", &choice); err != nil || choice < 1 || choice > len(modelOptions) {
+			log.Fatalf("Invalid choice: %s", input)
+		}
+		
+		*modelType = modelOptions[choice-1].key
+	}
+
+	// ── Step 3: Resolve paths ──
 	paths := defaultGenPaths[*benchmark]
 	if *devFile == "" {
 		*devFile = paths["dev-file"]
