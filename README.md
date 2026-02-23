@@ -66,22 +66,23 @@ go run ./cmd/analyze_results
 
 ## CLI Overview
 
-| Command | Description |
-|---------|-------------|
-| `go run ./cmd/eval` | Run evaluation (Spider / BIRD, interactive) |
-| `go run ./cmd/gen_all_dev` | Generate Rich Context (interactive) |
-| `go run ./cmd/analyze_results` | Analyze evaluation results (interactive) |
-| `go run ./cmd/extract_result_fields` | Extract result field descriptions from Gold SQL |
+| Command                               | Description                                                 |
+| ------------------------------------- | ----------------------------------------------------------- |
+| `go run ./cmd/eval`                   | Run evaluation (Spider / BIRD, interactive)                 |
+| `go run ./cmd/gen_all_dev`            | Generate Rich Context (interactive)                         |
+| `go run ./cmd/analyze_results`        | Analyze evaluation results (interactive)                    |
+| `go run ./cmd/gen_field_descriptions` | Generate result field descriptions for BIRD/Spider datasets |
+| `go run ./cmd/extract_result_fields`  | (Legacy) Extract result field descriptions from Gold SQL    |
 
 All commands support both **interactive mode** (no args) and **CLI mode** (with flags). Run with `--help` for details.
 
 ## Key Results
 
-| Method | Base Model | EX (%) |
-|--------|-----------|--------|
-| DAIL-SQL + GPT-4 | GPT-4 | 86.6 |
-| DIN-SQL + GPT-4 | GPT-4 | 85.3 |
-| **ReAct SQL** | **Qwen-3 Max** | **94.39** |
+| Method           | Base Model     | EX (%)    |
+| ---------------- | -------------- | --------- |
+| DAIL-SQL + GPT-4 | GPT-4          | 86.6      |
+| DIN-SQL + GPT-4  | GPT-4          | 85.3      |
+| **ReAct SQL**    | **Qwen-3 Max** | **94.39** |
 
 ## Prerequisites
 
