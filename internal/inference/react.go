@@ -13,8 +13,8 @@ import (
 )
 
 // oneShotGeneration one-shot SQL generation
-func (p *Pipeline) oneShotGeneration(ctx context.Context, query string, contextPrompt string) (string, error) {
-	prompt := p.buildPrompt(query, contextPrompt, false)
+func (p *Pipeline) oneShotGeneration(ctx context.Context, query string, contextPrompt string, crossTableSummary string) (string, error) {
+	prompt := p.buildPrompt(query, contextPrompt, crossTableSummary, false)
 
 	p.Logger.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	p.Logger.Println(" SQL Generation (One-shot) - Prompt to LLM:")
@@ -70,7 +70,7 @@ func (p *Pipeline) oneShotGeneration(ctx context.Context, query string, contextP
 }
 
 // reactLoop ReAct loop
-func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt string, result *Result) (string, error) {
+func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt string, crossTableSummary string, result *Result) (string, error) {
 	// Create tools
 	sqlTool := &SQLTool{
 		adapter:   p.adapter,
@@ -136,7 +136,7 @@ func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt st
 	}
 
 	// Build Prompt - pass claimed iterations to prompt
-	prompt := p.buildPrompt(query, contextPrompt, true)
+	prompt := p.buildPrompt(query, contextPrompt, crossTableSummary, true)
 
 	// Print key info only, skip full prompt（avoid duplicate Best Practices etc.）
 	p.Logger.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -181,7 +181,7 @@ func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt st
 }
 
 // buildPrompt builds prompt
-func (p *Pipeline) buildPrompt(query string, contextPrompt string, isReact bool) string {
+func (p *Pipeline) buildPrompt(query string, contextPrompt string, crossTableSummary string, isReact bool) string {
 	var sb strings.Builder
 
 	sb.WriteString("You are a SQL expert. Generate SQL to answer the question.\n\n")
@@ -215,6 +215,12 @@ func (p *Pipeline) buildPrompt(query string, contextPrompt string, isReact bool)
 		sb.WriteString("\n\n")
 	}
 
+	// Cross-table quality summary (smart injection from full-table analysis)
+	if crossTableSummary != "" {
+		sb.WriteString(crossTableSummary)
+		sb.WriteString("\n")
+	}
+
 	// SQL Best Practices (only added with Rich Context)
 	// These are enhanced hints from onboarding, should not be used in baseline
 	if p.config.UseRichContext {
@@ -228,41 +234,13 @@ func (p *Pipeline) buildPrompt(query string, contextPrompt string, isReact bool)
 			}
 		}
 
-		sb.WriteString(`IMPORTANT: Rich Context may be outdated or incorrect. When Rich Context conflicts with actual database data, trust the database.
+		sb.WriteString("IMPORTANT: Rich Context may be outdated or incorrect. When Rich Context conflicts with actual database data, trust the database.\n\n")
 
-SQL Best Practices:
-1. TEXT fields storing numbers: Use CAST(field AS INTEGER/REAL) for comparisons and sorting
-2. NULL handling:
-   - NULL means "unknown/uncertain", not zero.
-   - When doing aggregations on numeric data stored in TEXT fields (like 'MPG' or 'Horsepower'), be aware of non-numeric string values like 'null'.
-   - Filter both SQL NULLs and string NULLs: WHERE field IS NOT NULL AND field != 'null'
-3. String matching:
-   - Use exact values from Rich Context when available (e.g., if Rich Context lists "USA, UK, France", use these exact strings)
-   - If no exact values in Rich Context and NOT in ReAct mode: use case-insensitive matching (LOWER(field) = LOWER('value'))
-   - If no exact values in Rich Context and IN ReAct mode: explore with execute_sql to find exact values first
-4. Duplicates: When the question asks for a list of items (e.g., names, cities), duplicates are often undesirable. If your query joins tables in a way that might create duplicates (e.g., one student has multiple pets), consider using DISTINCT to ensure unique results.
-5. Zero values:
-   - Zero (0) means "business non-existence" (e.g., population=0 means no people)
-   - Zero is different from NULL (NULL = unknown, 0 = known to be zero)
-   - Check Rich Context for specific meaning of zero in each field
-6. Extreme values (MIN/MAX/TOP/LIMIT):
-   - When finding extreme values (youngest, oldest, highest, lowest, etc.):
-     * ALWAYS return ALL rows with the extreme value (handle ties properly)
-     * Use subquery pattern: WHERE column = (SELECT MIN/MAX(column) FROM table)
-     * Example: SELECT * FROM table WHERE value = (SELECT MAX(value) FROM table)
-   - AVOID: ORDER BY ... LIMIT 1 (only returns one arbitrary row when there are ties)
-   - Exception: If the question explicitly asks for "one" or "any one", then LIMIT 1 is acceptable
-7. Value Mapping: When the question contains specific text values (e.g., "amc hornet sportabout (sw)"), you MUST verify which column contains this value before using it in a WHERE clause. DO NOT GUESS between similar columns (e.g., 'Make' vs 'Model'). Use 'execute_sql' with a 'WHERE' clause to check for the value's existence.
-8. Data format conflicts:
-   - If Rich Context says "2-digit year (70=1970)" but query returns 0 results, try 4-digit year (1970)
-   - Always verify actual data format with execute_sql when encountering unexpected empty results
-9. Data Formatting and Whitespace:
-   - Be cautious of hidden characters or formatting that can cause 'WHERE' clause mismatches, especially in 'TEXT' fields.
-   - **Leading/Trailing Spaces:** Values might have extra spaces (e.g., '' USA '' instead of ''USA''). Use 'TRIM()' (e.g., 'WHERE TRIM(Country) = ''USA''') to handle this.
-   - **Special Characters:** Data might be enclosed in quotes or other characters (e.g., '''"France"''').
-   - If a query with a 'WHERE' clause on a 'TEXT' field unexpectedly returns no results, suspect a formatting issue. Use 'execute_sql' with 'LIKE ''%value%''' to investigate the actual data format.
-
-`)
+		if p.config.Benchmark == "bird" {
+			sb.WriteString(p.buildBirdBestPractices())
+		} else {
+			sb.WriteString(p.buildSpiderBestPractices())
+		}
 	}
 
 	sb.WriteString(fmt.Sprintf("Question: %s\n\n", query))
@@ -547,3 +525,60 @@ func (t *ClarifyTool) Call(ctx context.Context, input string) (string, error) {
 
 	return response, nil
 }
+
+// buildSpiderBestPractices returns SQL best practices for Spider benchmark
+func (p *Pipeline) buildSpiderBestPractices() string {
+	return `SQL Rules & Best Practices:
+1. Type Mismatch (TEXT storing numbers):
+   - Use CAST(field AS INTEGER/REAL) for comparisons, sorting, and aggregation
+   - Filter non-numeric values: WHERE field IS NOT NULL AND field != '' AND field != 'null'
+2. Whitespace: If quality issues mention whitespace, use TRIM(field) in JOIN/WHERE/GROUP BY
+3. NULL handling: NULL ≠ 0. Filter with IS NOT NULL. For TEXT fields, also check field != ''
+4. String matching:
+   - Use exact values from Rich Context when available
+   - In ReAct mode: use execute_sql to find exact values when uncertain
+5. Aggregation patterns:
+   - "Highest/Lowest/Top N": ORDER BY col DESC/ASC LIMIT N (NOT MAX/MIN which returns 1 row)
+   - "Count by X": SELECT X, COUNT(*) ... GROUP BY X (MUST include GROUP BY)
+   - "Rate/Percentage": CAST(num AS REAL) / CAST(denom AS REAL) (avoid integer division)
+6. Extreme values with ties:
+   - Use subquery: WHERE col = (SELECT MAX/MIN(col) FROM table)
+   - AVOID ORDER BY + LIMIT 1 (misses ties)
+   - Exception: question says "one" or "any one" → LIMIT 1 is OK
+7. Duplicates: When listing items from JOINs, consider DISTINCT to avoid duplicates
+8. Orphan records: If quality issues mention orphans, use LEFT JOIN instead of INNER JOIN
+9. Value verification: When using specific text values in WHERE, verify which column contains it first
+
+`
+}
+
+// buildBirdBestPractices returns SQL best practices tailored for BIRD benchmark
+// BIRD-specific: evidence-driven, projection-focused, DISTINCT-aware
+func (p *Pipeline) buildBirdBestPractices() string {
+	return `SQL Rules & Best Practices (BIRD):
+1. EVIDENCE IS CRITICAL: The "Evidence" section contains exact column mappings, value constraints, and formulas.
+   - If evidence says "X refers to Y = 'Z'" → you MUST use column Y with value 'Z'
+   - If evidence gives a formula (e.g., "percentage = DIVIDE(A, B)") → use that exact formula
+   - If evidence defines a threshold (e.g., "normal range refers to X > 900 AND X < 2000") → use those exact bounds
+   - NEVER ignore or reinterpret evidence constraints
+2. Projection (SELECT columns):
+   - Return ONLY the columns the question asks for — no extra columns
+   - If question asks "what is X" → SELECT X only, not X plus other info
+   - Match the gold column count: 1 question = 1 column unless explicitly multi-column
+   - When question asks for a name/description, JOIN to get the text — do NOT return IDs
+3. DISTINCT usage:
+   - Use DISTINCT only when the question says "different", "unique", "distinct", or when JOINs produce actual duplicates
+   - Do NOT add DISTINCT by default — many queries expect duplicate rows
+   - If unsure, run the query first and check for unintended duplicates
+4. Type Mismatch: Use CAST(field AS INTEGER/REAL) for TEXT columns storing numbers
+5. Percentage/Rate: Always use CAST(... AS REAL) to avoid integer division truncation
+6. IIF/CASE patterns: For yes/no or conditional results, use IIF(condition, 'YES', 'NO') or CASE WHEN
+7. Aggregation:
+   - "Highest/Top N": ORDER BY col DESC LIMIT N
+   - "Rate/Percentage": CAST(numerator AS REAL) * 100 / denominator
+8. NULL handling: NULL ≠ 0 ≠ ''. Filter with IS NOT NULL, and for TEXT also check != ''
+9. Date handling: Use substr(date, 1, 10) or LIKE 'YYYY-MM-DD%' for date prefix matching
+
+`
+}
+

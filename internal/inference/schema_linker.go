@@ -28,6 +28,7 @@ type TableInfo struct {
 	Columns     []string                        // Column name list
 	ForeignKeys []contextpkg.ForeignKeyMetadata // Foreign key relationships
 	Description string                          // Table description (optional, from rich_context or table comment)
+	QualitySummary string                       // One-line quality issues summary
 }
 
 // LLMSchemaLinker LLM-based Schema Linking
@@ -65,6 +66,9 @@ func (l *LLMSchemaLinker) linkOneShot(ctx context.Context, query string, allTabl
 		schemaDesc.WriteString(fmt.Sprintf("  Columns: %s\n", strings.Join(table.Columns, ", ")))
 		if table.Description != "" {
 			schemaDesc.WriteString(fmt.Sprintf("  Description: %s\n", table.Description))
+		}
+		if table.QualitySummary != "" {
+			schemaDesc.WriteString(fmt.Sprintf("  %s\n", table.QualitySummary))
 		}
 		schemaDesc.WriteString("\n")
 	}
@@ -258,6 +262,9 @@ func (l *LLMSchemaLinker) linkWithReact(ctx context.Context, query string, allTa
 		if table.Description != "" {
 			schemaDesc.WriteString(fmt.Sprintf("  Description: %s\n", table.Description))
 		}
+		if table.QualitySummary != "" {
+			schemaDesc.WriteString(fmt.Sprintf("  %s\n", table.QualitySummary))
+		}
 		schemaDesc.WriteString("\n")
 	}
 
@@ -381,18 +388,36 @@ func ExtractTableInfo(ctx *contextpkg.SharedContext) map[string]*TableInfo {
 			description = table.Comment
 		}
 		if description == "" && len(table.RichContext) > 0 {
-			// Last resort: use first rich_context entry
-			for _, v := range table.RichContext {
-				description = v.Content
-				break
+			// Last resort: use first rich_context entry (skip metadata keys)
+			for k, v := range table.RichContext {
+				if !strings.HasSuffix(k, "_columns") && !strings.HasSuffix(k, "_indexes") &&
+					!strings.HasSuffix(k, "_rowcount") && !strings.HasSuffix(k, "_foreignkeys") {
+					description = v.Content
+					break
+				}
+			}
+		}
+
+		// Build quality summary from structured issues
+		qualitySummary := ""
+		if len(table.QualityIssues) > 0 {
+			var criticals []string
+			for _, issue := range table.QualityIssues {
+				if issue.Severity == "critical" {
+					criticals = append(criticals, fmt.Sprintf("%s(%s)", issue.Column, issue.Type))
+				}
+			}
+			if len(criticals) > 0 {
+				qualitySummary = fmt.Sprintf("⚠️ Quality: %s", strings.Join(criticals, ", "))
 			}
 		}
 
 		result[name] = &TableInfo{
-			Name:        name,
-			Columns:     columns,
-			ForeignKeys: table.ForeignKeys,
-			Description: description,
+			Name:           name,
+			Columns:        columns,
+			ForeignKeys:    table.ForeignKeys,
+			Description:    description,
+			QualitySummary: qualitySummary,
 		}
 	}
 

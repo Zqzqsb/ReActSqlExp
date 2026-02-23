@@ -34,6 +34,9 @@ type Config struct {
 	EnableProofread bool   // Enable proofread (allow LLM to fix Rich Context)
 	DBName          string // Database name
 	DBType          string // Database type
+
+	// Benchmark-specific config
+	Benchmark string // "spider" | "bird" — controls prompt strategy
 }
 
 // StepCallback is called for each ReAct step update during streaming
@@ -216,6 +219,7 @@ func (p *Pipeline) Execute(ctx context.Context, query string) (*Result, error) {
 
 	// 2. Build Schema Context (basic table structure, always provided)
 	var contextPrompt string
+	var crossTableSummary string
 
 	if p.config.UseRichContext && p.context != nil {
 		// Use Rich Context (detailed info)
@@ -227,11 +231,18 @@ func (p *Pipeline) Execute(ctx context.Context, query string) (*Result, error) {
 			IncludeStats:       true,
 		}
 		contextPrompt = p.context.ExportToCompactPrompt(opts)
+
+		// Build cross-table quality summary from ALL tables (smart injection)
+		crossTableSummary = p.context.BuildCrossTableQualitySummary(tables)
+
 		// Print summary to stdout + file
 		p.Logger.Printf("📚 Using Rich Context for %d tables\n", len(tables))
 		// Dump full Rich Context content to log file only (for post-analysis)
 		p.Logger.FileOnly("\n┌─ Rich Context Content ───────────────────────────────────\n")
 		p.Logger.FileOnly("%s", contextPrompt)
+		if crossTableSummary != "" {
+			p.Logger.FileOnly("\n--- Cross-Table Quality Summary ---\n%s", crossTableSummary)
+		}
 		p.Logger.FileOnly("└──────────────────────────────────────────────────────────\n\n")
 	} else {
 		// Use basic Schema (table+column names only)
@@ -243,9 +254,9 @@ func (p *Pipeline) Execute(ctx context.Context, query string) (*Result, error) {
 	// 3. Generate SQL
 	var sql string
 	if p.config.UseReact {
-		sql, err = p.reactLoop(ctx, query, contextPrompt, result)
+		sql, err = p.reactLoop(ctx, query, contextPrompt, crossTableSummary, result)
 	} else {
-		sql, err = p.oneShotGeneration(ctx, query, contextPrompt)
+		sql, err = p.oneShotGeneration(ctx, query, contextPrompt, crossTableSummary)
 		result.LLMCalls++
 	}
 

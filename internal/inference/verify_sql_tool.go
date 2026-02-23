@@ -23,16 +23,11 @@ func (t *VerifySQLTool) Name() string {
 
 // Description returns tool description
 func (t *VerifySQLTool) Description() string {
-	return `Verify SQL syntax before submitting final answer.
-This tool checks for common syntax errors and validates the SQL using database dry-run.
+	return `Verify SQL syntax AND result reasonableness before submitting final answer.
+This tool checks for common syntax errors, validates via database execution, and reports result quality.
 
 Input: SQL query string to verify
-Output: "✓ SQL is valid" or error message with suggestions
-
-Common errors detected:
-- Illegal aliases like "AS count(*)" or "AS sum(*)"
-- Unmatched parentheses
-- Basic syntax errors
+Output: Verification report with syntax check, row count, sample results, and warnings
 
 Use this tool BEFORE giving your final answer to ensure SQL correctness.`
 }
@@ -59,7 +54,7 @@ func (t *VerifySQLTool) Call(ctx context.Context, input string) (string, error) 
 		return result, nil
 	}
 
-	// 2. Use DB execution for validation, not just dry-run
+	// 2. Execute SQL for validation and result analysis
 	data, err := t.adapter.ExecuteQuery(ctx, sql)
 	if err != nil {
 		result := fmt.Sprintf("❌ SQL validation failed (database check):\n%v\n\nPlease fix the error and try again.", err)
@@ -67,24 +62,62 @@ func (t *VerifySQLTool) Call(ctx context.Context, input string) (string, error) 
 		return result, nil
 	}
 
-	// 3. Check result row count
+	var report strings.Builder
+	report.WriteString("✓ SQL is valid!\n")
+
+	// 3. Row count analysis
+	report.WriteString(fmt.Sprintf("Row count: %d\n", data.RowCount))
+
 	var warnings []string
-	if len(data.Rows) == 0 {
-		warnings = append(warnings, "⚠️  Warning: Query returned 0 rows. Please double-check:\n  - Are the JOIN conditions correct?\n  - Are the WHERE conditions too restrictive?\n  - Does the data actually exist in the database?")
+
+	if data.RowCount == 0 {
+		warnings = append(warnings, "⚠️  Query returned 0 rows. Check:\n  - Are JOIN conditions correct?\n  - Are WHERE conditions too restrictive?\n  - Does the data exist? Try relaxing conditions.")
 	}
 
-	// 4. Check duplicate rows
+	// 4. Sample results (first 3 rows)
+	if data.RowCount > 0 && len(data.Rows) > 0 {
+		report.WriteString("Sample results:\n")
+		maxShow := 3
+		if data.RowCount < 3 {
+			maxShow = data.RowCount
+		}
+		for i := 0; i < maxShow && i < len(data.Rows); i++ {
+			report.WriteString(fmt.Sprintf("  Row %d: %v\n", i+1, data.Rows[i]))
+		}
+
+		// 5. Check for NULL values in results
+		hasNull := false
+		for _, row := range data.Rows {
+			for _, val := range row {
+				if val == nil {
+					hasNull = true
+					break
+				}
+			}
+			if hasNull {
+				break
+			}
+		}
+		if hasNull {
+			warnings = append(warnings, "⚠️  Results contain NULL values. Consider adding IS NOT NULL filters if NULLs are unexpected.")
+		}
+	}
+
+	// 6. Check duplicate rows
 	rows := convertQueryResultFormat(data.Rows)
 	if duplicateWarning := t.checkDuplicateRows(rows); duplicateWarning != "" {
 		warnings = append(warnings, duplicateWarning)
 	}
 
-	// 5. Build final result
-	result := "✓ SQL is valid! You can now provide the final answer."
+	// 7. Build final result
 	if len(warnings) > 0 {
-		result += "\n" + strings.Join(warnings, "\n")
+		report.WriteString(strings.Join(warnings, "\n"))
+		report.WriteString("\n")
 	}
 
+	report.WriteString("If results look correct, proceed to Final Answer.")
+
+	result := report.String()
 	logf("Output: %s\n", result)
 	return result, nil
 }
