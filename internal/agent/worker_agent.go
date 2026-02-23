@@ -94,6 +94,18 @@ func (a *WorkerAgent) Execute(ctx context.Context) error {
 		return fmt.Errorf("phase 1 failed: %w", err)
 	}
 
+	// ========== Phase 1.5: Deterministic quality checks & value stats ==========
+	if !a.sharedCtx.Quiet {
+		fmt.Printf("\n[%s] Phase 1.5: Running quality checks...\n", a.id)
+	}
+	qc := contextpkg.NewQualityChecker(a.adapter, a.sharedCtx, a.tableName)
+	if err := qc.RunAll(ctx); err != nil {
+		if !a.sharedCtx.Quiet {
+			fmt.Printf("[%s] Warning: quality check failed: %v\n", a.id, err)
+		}
+		// Non-fatal: continue to Phase 2
+	}
+
 	// ========== Phase 2: ReAct explore Rich Context ==========
 	if !a.sharedCtx.Quiet {
 		fmt.Printf("\n[%s] Phase 2: Exploring rich context...\n", a.id)
@@ -171,6 +183,8 @@ Execute these queries ONE BY ONE. After all queries complete, say "Phase 1 compl
 }
 
 // exploreRichContext Phase 2: ReAct loop for business insights
+// Note: data quality checks (whitespace, type mismatch, orphan, NULL stats) are now
+// handled deterministically in Phase 1.5. This phase focuses on BUSINESS SEMANTICS only.
 func (a *WorkerAgent) exploreRichContext(ctx context.Context) error {
 	// Get DB-type specific SQL syntax hints
 	dbType := a.adapter.GetDatabaseType()
@@ -187,77 +201,36 @@ func (a *WorkerAgent) exploreRichContext(ctx context.Context) error {
 	prompt := fmt.Sprintf(`You are analyzing table "%s" in %s database.
 %s
 
-Phase 2: Discover RICH CONTEXT - Focus on **DATA QUALITY ISSUES** first, then business meaning.
+Phase 2: Discover BUSINESS MEANING and VALUE PATTERNS.
 
-**CRITICAL: You MUST check data quality issues for EVERY TEXT column systematically.**
+Data quality issues (whitespace, type mismatch, orphan records, NULL stats) have already been checked automatically. Focus ONLY on business semantics.
 
-MANDATORY WORKFLOW (follow this order strictly):
+WORKFLOW:
 
-STEP 1: For EACH TEXT/VARCHAR column, check whitespace (MOST COMMON ISSUE):
-Execute: SELECT [column] FROM %s WHERE [column] != TRIM([column]) LIMIT 3
-- If returns ANY results: IMMEDIATELY save quality issue with ⚠️ prefix
-- If empty: column is clean, continue to next column
-- DO NOT SKIP any TEXT column
+1. For columns with small enumerations (<20 distinct values), explore value distributions:
+   Execute: SELECT [column], COUNT(*) as cnt FROM %s GROUP BY [column] ORDER BY cnt DESC LIMIT 15
+   Save: [column]_values|value1=meaning1(N%%), value2=meaning2(N%%)
 
-STEP 2: For EACH TEXT column, check if storing numbers:
-Execute: SELECT [column] FROM %s WHERE [column] GLOB '*[0-9]*' LIMIT 10
-- Inspect if values are purely numeric ("100", "200") vs mixed ("ABC123")
-- If purely numeric: save type mismatch issue with ⚠️ prefix
+2. For key business columns, record their meaning:
+   - What does this column represent?
+   - Any special encoding (e.g., 0=inactive, 1=active)?
+   Save: [column]_meaning|description of what values mean
 
-STEP 3: For foreign key columns, check orphan records:
-Execute: SELECT COUNT(*) FROM %s child LEFT JOIN [parent_table] parent ON child.[fk_column] = parent.[pk_column] WHERE parent.[pk_column] IS NULL
-- IMPORTANT: Use correct primary key column name from parent table
-- If count > 0: save orphan issue with ⚠️ prefix
-
-STEP 4: After quality checks, record business meaning for key columns:
-- Primary keys, foreign keys, important business fields
-- Value distributions for small enumerations (<20 distinct values)
-
-**QUALITY ISSUE NAMING CONVENTION:**
-- Whitespace: "[column]_quality_issue" → "⚠️ Contains leading/trailing whitespace. Use TRIM([column]) for exact matching and joins."
-- Type mismatch: "[column]_quality_issue" → "⚠️ TEXT field storing numeric values. Use CAST([column] AS INTEGER) for numeric operations."
-- Orphan records: "[table]_orphan_issue" → "⚠️ Contains N orphan records ([fk] not in [parent]). Use LEFT JOIN to preserve all records."
-- NULL/empty: "[column]_quality_issue" → specific percentage and meaning
+3. Record any cross-table business rules:
+   Save: business_rules|description of business logic
 
 Examples:
-
-Type mismatch - TEXT storing numbers:
 Action: execute_sql
-Action Input: SELECT horsepower FROM cars_data WHERE horsepower IS NOT NULL LIMIT 10
-Observation: ["100", "150", "200", "90", "", "N/A", "175"]
+Action Input: SELECT status, COUNT(*) as cnt FROM orders GROUP BY status
+Observation: active=800, inactive=200
 Action: set_rich_context
-Action Input: horsepower_quality_issue|⚠️ TEXT field storing numeric values. Contains empty strings and 'N/A'. Requires CAST(horsepower AS INTEGER) for numeric operations. 15%% NULL.
+Action Input: status_values|active=800(80%%), inactive=200(20%%)
 
-Whitespace issue:
-Action: execute_sql
-Action Input: SELECT SourceAirport FROM flights WHERE SourceAirport != TRIM(SourceAirport) LIMIT 3
-Observation: [" JFK", "LAX ", " ORD "]
 Action: set_rich_context
-Action Input: SourceAirport_quality_issue|⚠️ Contains leading/trailing whitespace. Use TRIM(SourceAirport) for exact matching and joins.
-
-Orphan records:
-Action: execute_sql
-Action Input: SELECT COUNT(*) FROM model_list ml LEFT JOIN car_makers cm ON ml.Maker = cm.Id WHERE cm.Id IS NULL
-Observation: 1 orphan record
-Action: set_rich_context
-Action Input: model_list_orphan_issue|⚠️ Contains 1 orphan record (Maker ID not in car_makers). Use LEFT JOIN to preserve all records.
-
-NULL meaning:
-Action: execute_sql
-Action Input: SELECT COUNT(*), COUNT(price) FROM products
-Observation: total=1000, non_null=850
-Action: set_rich_context
-Action Input: price_quality_issue|15%% NULL values, indicating price not yet set for new products.
-
-Empty vs NULL:
-Action: execute_sql
-Action Input: SELECT COUNT(*) FROM users WHERE email = ''
-Observation: 50 empty strings
-Action: set_rich_context
-Action Input: email_quality_issue|Contains 50 empty strings ('') in addition to NULLs. Check both: WHERE email IS NULL OR email = ''
+Action Input: business_rules|dept_id=0 means unassigned department
 
 Continue exploring. Say "Phase 2 complete" when done.`,
-		a.tableName, dbType, sqlHint, a.tableName, a.tableName, a.tableName)
+		a.tableName, dbType, sqlHint, a.tableName)
 
 	_, err := a.executor.Call(ctx, map[string]any{"input": prompt})
 	return err
