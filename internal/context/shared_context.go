@@ -118,6 +118,42 @@ func (r *RichContextValue) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// QualityIssue structured data quality issue
+type QualityIssue struct {
+	Table       string   `json:"table"`
+	Column      string   `json:"column"`
+	Type        string   `json:"type"`         // whitespace/type_mismatch/orphan/null_heavy/empty_string
+	Severity    string   `json:"severity"`     // critical/warning/info
+	Description string   `json:"description"`
+	SQLFix      string   `json:"sql_fix"`      // Recommended SQL fix snippet
+	AffectedOps []string `json:"affected_ops"` // ["JOIN", "WHERE", "GROUP BY", "ORDER BY"]
+	Examples    []string `json:"examples,omitempty"`
+}
+
+// ValueStats column value statistics
+type ValueStats struct {
+	DistinctCount int              `json:"distinct_count"`
+	NullCount     int              `json:"null_count"`
+	NullPercent   float64          `json:"null_percent"`
+	EmptyCount    int              `json:"empty_count,omitempty"`    // For TEXT columns: count of ''
+	TopValues     []ValueFrequency `json:"top_values,omitempty"`    // Enumeration values (distinct < 30)
+	Range         *NumericRange    `json:"range,omitempty"`         // For numeric columns
+}
+
+// ValueFrequency value with frequency
+type ValueFrequency struct {
+	Value   string  `json:"value"`
+	Count   int     `json:"count"`
+	Percent float64 `json:"percent"`
+}
+
+// NumericRange numeric value range
+type NumericRange struct {
+	Min float64 `json:"min"`
+	Max float64 `json:"max"`
+	Avg float64 `json:"avg"`
+}
+
 // TableMetadata table metadata
 type TableMetadata struct {
 	Name        string                      `json:"name"`
@@ -129,16 +165,20 @@ type TableMetadata struct {
 	Indexes     []IndexMetadata             `json:"indexes"`
 	ForeignKeys []ForeignKeyMetadata        `json:"foreign_keys,omitempty"` // Foreign key relationships
 	RichContext map[string]RichContextValue `json:"rich_context,omitempty"`
+
+	// Structured quality issues (deterministic, not LLM-generated)
+	QualityIssues []QualityIssue `json:"quality_issues,omitempty"`
 }
 
 // ColumnMetadata column metadata
 type ColumnMetadata struct {
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	Comment      string `json:"comment,omitempty"` // Column comment from DDL
-	Nullable     bool   `json:"nullable"`
-	DefaultValue string `json:"default,omitempty"`
-	IsPrimaryKey bool   `json:"is_primary_key,omitempty"`
+	Name         string      `json:"name"`
+	Type         string      `json:"type"`
+	Comment      string      `json:"comment,omitempty"` // Column comment from DDL
+	Nullable     bool        `json:"nullable"`
+	DefaultValue string      `json:"default,omitempty"`
+	IsPrimaryKey bool        `json:"is_primary_key,omitempty"`
+	ValueStats   *ValueStats `json:"value_stats,omitempty"` // Deterministic value statistics
 }
 
 // IndexMetadata index metadata
@@ -398,6 +438,40 @@ func (c *SharedContext) SetTableDescription(tableName, description string) error
 
 	table.Description = description
 	return nil
+}
+
+// SetTableQualityIssues sets structured quality issues for a table
+func (c *SharedContext) SetTableQualityIssues(tableName string, issues []QualityIssue) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	table, exists := c.Tables[tableName]
+	if !exists {
+		return fmt.Errorf("table not found: %s", tableName)
+	}
+
+	table.QualityIssues = issues
+	return nil
+}
+
+// SetColumnValueStats sets value statistics for a column
+func (c *SharedContext) SetColumnValueStats(tableName, columnName string, stats *ValueStats) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	table, exists := c.Tables[tableName]
+	if !exists {
+		return fmt.Errorf("table not found: %s", tableName)
+	}
+
+	for i, col := range table.Columns {
+		if col.Name == columnName {
+			table.Columns[i].ValueStats = stats
+			return nil
+		}
+	}
+
+	return fmt.Errorf("column not found: %s.%s", tableName, columnName)
 }
 
 // GetData gets data
