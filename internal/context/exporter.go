@@ -70,36 +70,39 @@ func (c *SharedContext) ExportToPrompt(opts *ExportOptions) string {
 		}
 
 		// Rich Context (business info and quality issues)
-		if opts.IncludeRichContext && len(table.RichContext) > 0 {
-			// Separate quality issues and business info
-			qualityIssues := make(map[string]RichContextValue)
-			businessContext := make(map[string]RichContextValue)
-
-			for key, note := range table.RichContext {
-				if strings.Contains(key, "quality_issue") || strings.Contains(key, "orphan_issue") {
-					qualityIssues[key] = note
-				} else {
-					businessContext[key] = note
-				}
-			}
-
-			// Show quality issues first (higher priority)
-			if len(qualityIssues) > 0 {
+		if opts.IncludeRichContext {
+			// Show structured quality issues first
+			if len(table.QualityIssues) > 0 {
 				sb.WriteString("### ⚠️ Data Quality Issues\n\n")
 				sb.WriteString("> **CRITICAL**: These issues directly affect SQL query correctness.\n\n")
-				for key, note := range qualityIssues {
-					sb.WriteString(fmt.Sprintf("- **%s**: %s\n", formatKey(key), note.Content))
+				for _, issue := range table.QualityIssues {
+					sb.WriteString(fmt.Sprintf("- **[%s] %s**: %s → Fix: `%s`\n",
+						issue.Severity, issue.Column, issue.Description, issue.SQLFix))
 				}
 				sb.WriteString("\n")
 			}
 
-			// Then show business context
-			if len(businessContext) > 0 {
-				sb.WriteString("### Business Context\n\n")
-				for key, note := range businessContext {
-					sb.WriteString(fmt.Sprintf("- **%s**: %s\n", formatKey(key), note.Content))
+			// Then show LLM-generated business context (skip old quality_issue keys)
+			if len(table.RichContext) > 0 {
+				businessContext := make(map[string]RichContextValue)
+				for key, note := range table.RichContext {
+					if strings.Contains(key, "quality_issue") || strings.Contains(key, "orphan_issue") {
+						continue
+					}
+					if strings.HasSuffix(key, "_columns") || strings.HasSuffix(key, "_indexes") ||
+						strings.HasSuffix(key, "_rowcount") || strings.HasSuffix(key, "_foreignkeys") {
+						continue
+					}
+					businessContext[key] = note
 				}
-				sb.WriteString("\n")
+
+				if len(businessContext) > 0 {
+					sb.WriteString("### Business Context\n\n")
+					for key, note := range businessContext {
+						sb.WriteString(fmt.Sprintf("- **%s**: %s\n", formatKey(key), note.Content))
+					}
+					sb.WriteString("\n")
+				}
 			}
 		}
 
@@ -197,7 +200,7 @@ func (c *SharedContext) ExportToCompactPrompt(opts *ExportOptions) string {
 		// Table name and row count
 		sb.WriteString(fmt.Sprintf("Table %s (%d rows):\n", table.Name, table.RowCount))
 
-		// Column info (compact format)
+		// Column info (compact format with inline value stats)
 		if opts.IncludeColumns {
 			for _, col := range table.Columns {
 				pk := ""
@@ -212,40 +215,56 @@ func (c *SharedContext) ExportToCompactPrompt(opts *ExportOptions) string {
 						break
 					}
 				}
-				sb.WriteString(fmt.Sprintf("  - %s: %s%s%s\n", col.Name, col.Type, pk, fkInfo))
+
+				// Inline value stats annotation
+				statsInfo := ""
+				if col.ValueStats != nil {
+					vs := col.ValueStats
+					if vs.DistinctCount > 0 && vs.DistinctCount <= 15 && len(vs.TopValues) > 0 {
+						// Compact enum display
+						vals := make([]string, 0, len(vs.TopValues))
+						for _, tv := range vs.TopValues {
+							if len(vals) >= 8 {
+								vals = append(vals, "...")
+								break
+							}
+							vals = append(vals, fmt.Sprintf("%s(%d)", tv.Value, tv.Count))
+						}
+						statsInfo = fmt.Sprintf(" values=[%s]", strings.Join(vals, ", "))
+					} else if vs.Range != nil {
+						statsInfo = fmt.Sprintf(" range=[%.0f..%.0f]", vs.Range.Min, vs.Range.Max)
+					}
+				}
+
+				sb.WriteString(fmt.Sprintf("  - %s: %s%s%s%s\n", col.Name, col.Type, pk, fkInfo, statsInfo))
 			}
 		}
 
-		// Rich Context (key business info and quality issues)
-		if opts.IncludeRichContext && len(table.RichContext) > 0 {
-			// Separate quality issues and business info
-			qualityIssues := make(map[string]RichContextValue)
-			businessNotes := make(map[string]RichContextValue)
+		// Structured quality issues (from deterministic checker)
+		if opts.IncludeRichContext && len(table.QualityIssues) > 0 {
+			sb.WriteString("  ⚠️ Data Quality Issues:\n")
+			for _, issue := range table.QualityIssues {
+				sb.WriteString(fmt.Sprintf("    * [%s] %s.%s: %s → Fix: %s\n",
+					issue.Severity, issue.Table, issue.Column, issue.Description, issue.SQLFix))
+			}
+		}
 
+		// Rich Context (LLM-generated business notes only — quality issues already shown above)
+		if opts.IncludeRichContext && len(table.RichContext) > 0 {
+			// Filter: only show business notes, skip old quality_issue keys
+			businessNotes := make(map[string]RichContextValue)
 			for key, note := range table.RichContext {
 				if strings.Contains(key, "quality_issue") || strings.Contains(key, "orphan_issue") {
-					qualityIssues[key] = note
-				} else {
-					businessNotes[key] = note
+					continue // skip — now handled by structured QualityIssues
 				}
+				// Skip metadata keys that duplicate column/index info
+				if strings.HasSuffix(key, "_columns") || strings.HasSuffix(key, "_indexes") ||
+					strings.HasSuffix(key, "_rowcount") || strings.HasSuffix(key, "_foreignkeys") {
+					continue
+				}
+				businessNotes[key] = note
 			}
 
-			// Show quality issues first
-			if len(qualityIssues) > 0 {
-				sb.WriteString("  ⚠️ Data Quality Issues:\n")
-				for key, note := range qualityIssues {
-					expiredTag := ""
-					if note.ExpiresAt != "" {
-						expiresAt, err := time.Parse(time.RFC3339, note.ExpiresAt)
-						if err == nil && time.Now().After(expiresAt) {
-							expiredTag = " [EXPIRED]"
-						}
-					}
-					sb.WriteString(fmt.Sprintf("    * [%s] %s%s\n", key, note.Content, expiredTag))
-				}
-			}
-
-			// Then show business info
 			if len(businessNotes) > 0 {
 				sb.WriteString("  Business Notes:\n")
 				for key, note := range businessNotes {
@@ -256,7 +275,7 @@ func (c *SharedContext) ExportToCompactPrompt(opts *ExportOptions) string {
 							expiredTag = " [EXPIRED]"
 						}
 					}
-					sb.WriteString(fmt.Sprintf("    * [%s] %s: %s%s\n", key, formatKey(key), note.Content, expiredTag))
+					sb.WriteString(fmt.Sprintf("    * %s: %s%s\n", formatKey(key), note.Content, expiredTag))
 				}
 			}
 		}
@@ -300,6 +319,65 @@ func (c *SharedContext) ExportToSchemaLinking(tableNames []string) string {
 		sb.WriteString(")")
 	}
 
+	return sb.String()
+}
+
+// BuildCrossTableQualitySummary builds a compact quality summary from ALL tables,
+// focusing on issues that affect cross-table JOINs and commonly-misused columns.
+// selectedTables controls which tables get per-table detail; issues from other tables
+// that reference a selected table (e.g., orphan FK) are also included.
+func (c *SharedContext) BuildCrossTableQualitySummary(selectedTables []string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	selected := make(map[string]bool, len(selectedTables))
+	for _, t := range selectedTables {
+		selected[t] = true
+	}
+
+	// Collect cross-table-relevant issues from ALL tables
+	type issueEntry struct {
+		table string
+		issue QualityIssue
+	}
+	var crossIssues []issueEntry
+
+	for tableName, table := range c.Tables {
+		for _, qi := range table.QualityIssues {
+			// Always include orphan issues (they affect JOINs)
+			if qi.Type == "orphan" {
+				crossIssues = append(crossIssues, issueEntry{tableName, qi})
+				continue
+			}
+			// Include whitespace/type_mismatch on FK columns (affects JOIN correctness)
+			if qi.Type == "whitespace" || qi.Type == "type_mismatch" {
+				for _, op := range qi.AffectedOps {
+					if op == "JOIN" {
+						crossIssues = append(crossIssues, issueEntry{tableName, qi})
+						break
+					}
+				}
+				continue
+			}
+			// For non-selected tables, skip non-JOIN issues
+			if !selected[tableName] {
+				continue
+			}
+			// For selected tables, include critical issues not already in compact prompt
+			// (they ARE already shown — skip to avoid duplication)
+		}
+	}
+
+	if len(crossIssues) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Cross-Table Data Quality Warnings:\n")
+	for _, entry := range crossIssues {
+		sb.WriteString(fmt.Sprintf("- %s.%s: %s → %s\n",
+			entry.table, entry.issue.Column, entry.issue.Description, entry.issue.SQLFix))
+	}
 	return sb.String()
 }
 
