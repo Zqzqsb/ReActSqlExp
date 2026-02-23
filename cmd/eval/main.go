@@ -826,6 +826,7 @@ func evaluateSpider(
 		EnableProofread:         mode.EnableProofread,
 		DBName:                  example.DbID,
 		DBType:                  "sqlite",
+		Benchmark:               "spider",
 	}
 
 	pipeline := inference.NewPipeline(llm, dbAdapter, pipelineConfig)
@@ -903,10 +904,10 @@ func evaluateBird(
 		}
 	}
 
-	// Build full question with evidence
+	// Build full question with evidence (structured for BIRD)
 	question := example.Question
 	if example.Evidence != "" {
-		question = fmt.Sprintf("%s\nEvidence: %s", example.Question, example.Evidence)
+		question = fmt.Sprintf("%s\n\nEvidence (MUST follow these constraints):\n%s", example.Question, example.Evidence)
 	}
 
 	// Pipeline
@@ -921,6 +922,7 @@ func evaluateBird(
 		LogMode:        logMode,
 		DBName:         example.DbID,
 		DBType:         "sqlite",
+		Benchmark:      "bird",
 	}
 
 	pipeline := inference.NewPipeline(llm, dbAdapter, pipelineConfig)
