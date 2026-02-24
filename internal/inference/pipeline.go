@@ -197,15 +197,29 @@ func (p *Pipeline) Execute(ctx context.Context, query string) (*Result, error) {
 		}
 	}
 
-	tables, schemaLinkingSteps, err := p.schemaLinker.Link(ctx, query, allTableInfo)
+	// Build full RC prompt for Schema Linker (so it can read everything and output focused context)
+	var fullRCPrompt string
+	if p.config.UseRichContext && p.context != nil {
+		fullRCOpts := &contextpkg.ExportOptions{
+			Tables:             nil, // all tables
+			IncludeColumns:     true,
+			IncludeIndexes:     true,
+			IncludeRichContext: true,
+			IncludeStats:       true,
+		}
+		fullRCPrompt = p.context.ExportToCompactPrompt(fullRCOpts)
+	}
+
+	linkResult, err := p.schemaLinker.Link(ctx, query, allTableInfo, fullRCPrompt)
 	if err != nil {
 		return nil, fmt.Errorf("schema linking failed: %w", err)
 	}
+	tables := linkResult.Tables
 	result.SelectedTables = tables
 	result.LLMCalls++
 
 	// Add Schema Linking ReAct steps to result
-	for _, step := range schemaLinkingSteps {
+	for _, step := range linkResult.Steps {
 		result.ReActSteps = append(result.ReActSteps, ReActStep{
 			Thought:     step.Thought,
 			Action:      step.Action,
@@ -217,27 +231,32 @@ func (p *Pipeline) Execute(ctx context.Context, query string) (*Result, error) {
 
 	p.Logger.Printf("📋 Selected Tables: %v\n\n", tables)
 
-	// 2. Build Schema Context (basic table structure, always provided)
+	// 2. Build Schema Context for SQL generation
 	var contextPrompt string
 	var crossTableSummary string
 
 	if p.config.UseRichContext && p.context != nil {
-		// Use Rich Context (detailed info)
-		opts := &contextpkg.ExportOptions{
-			Tables:             tables,
-			IncludeColumns:     true,
-			IncludeIndexes:     true,
-			IncludeRichContext: true,
-			IncludeStats:       true,
+		// Prefer Schema Linker's focused context (LLM-filtered)
+		if linkResult.ContextPrompt != "" {
+			contextPrompt = linkResult.ContextPrompt
+			p.Logger.Printf("📚 Using Schema Linker's focused context (%d chars)\n", len(contextPrompt))
+		} else {
+			// Fallback: export full RC for selected tables
+			opts := &contextpkg.ExportOptions{
+				Tables:             tables,
+				IncludeColumns:     true,
+				IncludeIndexes:     true,
+				IncludeRichContext: true,
+				IncludeStats:       true,
+			}
+			contextPrompt = p.context.ExportToCompactPrompt(opts)
+			p.Logger.Printf("📚 Using full Rich Context for %d tables (linker had no focused context)\n", len(tables))
 		}
-		contextPrompt = p.context.ExportToCompactPrompt(opts)
 
 		// Build cross-table quality summary from ALL tables (smart injection)
 		crossTableSummary = p.context.BuildCrossTableQualitySummary(tables)
 
-		// Print summary to stdout + file
-		p.Logger.Printf("📚 Using Rich Context for %d tables\n", len(tables))
-		// Dump full Rich Context content to log file only (for post-analysis)
+		// Dump context content to log file only (for post-analysis)
 		p.Logger.FileOnly("\n┌─ Rich Context Content ───────────────────────────────────\n")
 		p.Logger.FileOnly("%s", contextPrompt)
 		if crossTableSummary != "" {
@@ -247,7 +266,6 @@ func (p *Pipeline) Execute(ctx context.Context, query string) (*Result, error) {
 	} else {
 		// Use basic Schema (table+column names only)
 		contextPrompt = p.buildBasicSchema(ctx, tables)
-		// Skip full Basic Schema print
 		p.Logger.Printf("📋 Using Basic Schema for %d tables\n", len(tables))
 	}
 

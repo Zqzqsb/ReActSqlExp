@@ -14,12 +14,19 @@ import (
 	contextpkg "reactsql/internal/context"
 )
 
+// SchemaLinkResult holds the output of Schema Linking
+type SchemaLinkResult struct {
+	Tables       []string   // Selected table names
+	Steps        []ReActStep // ReAct steps (if using ReAct mode)
+	ContextPrompt string    // LLM-generated focused context for SQL generation (empty if not available)
+}
+
 // SchemaLinker module interface
 type SchemaLinker interface {
 	// Link performs Schema Linking
-	// Input: query, all table info
-	// Output: relevant table names, ReAct steps (if using ReAct mode)
-	Link(ctx context.Context, query string, allTables map[string]*TableInfo) ([]string, []ReActStep, error)
+	// Input: query, all table info, optional full RC prompt
+	// Output: SchemaLinkResult containing tables, steps, and optionally a focused context
+	Link(ctx context.Context, query string, allTables map[string]*TableInfo, fullRCPrompt string) (*SchemaLinkResult, error)
 }
 
 // TableInfo brief table info (for Schema Linking)
@@ -50,20 +57,26 @@ func NewLLMSchemaLinker(llm llms.Model, dbAdapter adapter.DBAdapter, useReact bo
 }
 
 // Link performs Schema Linking
-func (l *LLMSchemaLinker) Link(ctx context.Context, query string, allTables map[string]*TableInfo) ([]string, []ReActStep, error) {
+func (l *LLMSchemaLinker) Link(ctx context.Context, query string, allTables map[string]*TableInfo, fullRCPrompt string) (*SchemaLinkResult, error) {
 	if l.useReact {
-		return l.linkWithReact(ctx, query, allTables)
+		return l.linkWithReact(ctx, query, allTables, fullRCPrompt)
 	}
-	return l.linkOneShot(ctx, query, allTables)
+	return l.linkOneShot(ctx, query, allTables, fullRCPrompt)
 }
 
 // linkOneShot One-shot Schema Linking
-func (l *LLMSchemaLinker) linkOneShot(ctx context.Context, query string, allTables map[string]*TableInfo) ([]string, []ReActStep, error) {
-	// Build table info description (formatted as readable list)
+func (l *LLMSchemaLinker) linkOneShot(ctx context.Context, query string, allTables map[string]*TableInfo, fullRCPrompt string) (*SchemaLinkResult, error) {
+	// Build table info description (formatted as readable list, include FK info)
 	var schemaDesc strings.Builder
 	for _, table := range allTables {
 		schemaDesc.WriteString(fmt.Sprintf("- %s\n", table.Name))
 		schemaDesc.WriteString(fmt.Sprintf("  Columns: %s\n", strings.Join(table.Columns, ", ")))
+		if len(table.ForeignKeys) > 0 {
+			schemaDesc.WriteString("  Foreign Keys:\n")
+			for _, fk := range table.ForeignKeys {
+				schemaDesc.WriteString(fmt.Sprintf("    %s → %s.%s\n", fk.ColumnName, fk.ReferencedTable, fk.ReferencedColumn))
+			}
+		}
 		if table.Description != "" {
 			schemaDesc.WriteString(fmt.Sprintf("  Description: %s\n", table.Description))
 		}
@@ -81,7 +94,9 @@ Available Tables:
 
 Question: %s
 
-Task: Select the minimum set of tables needed to answer this question.
+Task: Select ALL tables needed to answer this question, including intermediate/bridge tables for JOINs.
+IMPORTANT: If table A references table B via foreign key, and you need data from A, you likely need B too.
+When in doubt, INCLUDE the table — it's better to select extra tables than to miss one.
 Output format: table1, table2, table3 (comma-separated, no extra text)
 If all tables are needed, output: all
 If no tables are needed, output: none
@@ -125,7 +140,7 @@ Output:`, schemaDesc.String(), query)
 	}
 
 	if err != nil {
-		return nil, []ReActStep{}, fmt.Errorf("schema linking failed after %d attempts: %w", maxRetries+1, err)
+		return nil, fmt.Errorf("schema linking failed after %d attempts: %w", maxRetries+1, err)
 	}
 
 	response = strings.TrimSpace(response)
@@ -148,7 +163,6 @@ Output:`, schemaDesc.String(), query)
 		for name := range allTables {
 			result = append(result, name)
 		}
-		// Create a simple step to represent Schema Linking process
 		tablesStr := strings.Join(result, ", ")
 		steps := []ReActStep{
 			{
@@ -161,11 +175,10 @@ Output:`, schemaDesc.String(), query)
 				Phase:       "schema_linking",
 			},
 		}
-		return result, steps, nil
+		return &SchemaLinkResult{Tables: result, Steps: steps}, nil
 	}
 
 	if response == "none" {
-		// Create a simple step to represent Schema Linking process
 		steps := []ReActStep{
 			{
 				Thought: fmt.Sprintf("The question '%s' does not require any tables to answer.", query),
@@ -177,7 +190,7 @@ Output:`, schemaDesc.String(), query)
 				Phase:       "schema_linking",
 			},
 		}
-		return []string{}, steps, nil
+		return &SchemaLinkResult{Tables: []string{}, Steps: steps}, nil
 	}
 
 	// Take first line only (LLM may include extra explanation)
@@ -191,6 +204,20 @@ Output:`, schemaDesc.String(), query)
 		table = strings.TrimSpace(table)
 		if table != "" {
 			result = append(result, table)
+		}
+	}
+
+	// Auto-complete: add FK-referenced tables that were missed
+	result = l.autoCompleteFKTables(result, allTables)
+
+	// Safety net: if DB is small (≤6 tables) and LLM selected very few, include all
+	if len(allTables) <= 6 && len(result) < len(allTables) && len(result) <= 2 {
+		result = make([]string, 0, len(allTables))
+		for name := range allTables {
+			result = append(result, name)
+		}
+		if l.logger != nil {
+			l.logger.Printf("📋 Schema Linking: small DB safety net — included all %d tables\n", len(result))
 		}
 	}
 
@@ -208,11 +235,11 @@ Output:`, schemaDesc.String(), query)
 		},
 	}
 
-	return result, steps, nil
+	return &SchemaLinkResult{Tables: result, Steps: steps}, nil
 }
 
 // linkWithReact ReAct mode Schema Linking
-func (l *LLMSchemaLinker) linkWithReact(ctx context.Context, query string, allTables map[string]*TableInfo) ([]string, []ReActStep, error) {
+func (l *LLMSchemaLinker) linkWithReact(ctx context.Context, query string, allTables map[string]*TableInfo, fullRCPrompt string) (*SchemaLinkResult, error) {
 	if l.logger != nil {
 		l.logger.Println("🔍 Schema Linking (ReAct mode)...")
 	} else {
@@ -242,58 +269,56 @@ func (l *LLMSchemaLinker) linkWithReact(ctx context.Context, query string, allTa
 		agents.WithCallbacksHandler(reactHandler),
 	)
 	if err != nil {
-		return nil, []ReActStep{}, err
+		return nil, err
 	}
 
-	// Build table info
-	var schemaDesc strings.Builder
-	for _, table := range allTables {
-		schemaDesc.WriteString(fmt.Sprintf("- %s\n", table.Name))
-		schemaDesc.WriteString(fmt.Sprintf("  Columns: %s\n", strings.Join(table.Columns, ", ")))
-
-		// Add FK info
-		if len(table.ForeignKeys) > 0 {
-			schemaDesc.WriteString("  Foreign Keys:\n")
-			for _, fk := range table.ForeignKeys {
-				schemaDesc.WriteString(fmt.Sprintf("    %s → %s.%s\n", fk.ColumnName, fk.ReferencedTable, fk.ReferencedColumn))
+	// Build schema description: use full RC if available, otherwise use basic table info
+	var schemaSection string
+	if fullRCPrompt != "" {
+		schemaSection = fullRCPrompt
+	} else {
+		var schemaDesc strings.Builder
+		for _, table := range allTables {
+			schemaDesc.WriteString(fmt.Sprintf("- %s\n", table.Name))
+			schemaDesc.WriteString(fmt.Sprintf("  Columns: %s\n", strings.Join(table.Columns, ", ")))
+			if len(table.ForeignKeys) > 0 {
+				schemaDesc.WriteString("  Foreign Keys:\n")
+				for _, fk := range table.ForeignKeys {
+					schemaDesc.WriteString(fmt.Sprintf("    %s → %s.%s\n", fk.ColumnName, fk.ReferencedTable, fk.ReferencedColumn))
+				}
 			}
+			if table.Description != "" {
+				schemaDesc.WriteString(fmt.Sprintf("  Description: %s\n", table.Description))
+			}
+			if table.QualitySummary != "" {
+				schemaDesc.WriteString(fmt.Sprintf("  %s\n", table.QualitySummary))
+			}
+			schemaDesc.WriteString("\n")
 		}
-
-		if table.Description != "" {
-			schemaDesc.WriteString(fmt.Sprintf("  Description: %s\n", table.Description))
-		}
-		if table.QualitySummary != "" {
-			schemaDesc.WriteString(fmt.Sprintf("  %s\n", table.QualitySummary))
-		}
-		schemaDesc.WriteString("\n")
+		schemaSection = schemaDesc.String()
 	}
 
-	// Build Prompt
-	prompt := fmt.Sprintf(`You are a database expert. Identify which tables are relevant to answer the question.
+	// Build Prompt — with full RC, linker outputs BOTH tables AND focused context
+	prompt := fmt.Sprintf(`You are a database expert. Your task has TWO parts:
+1. Identify which tables (and columns) are relevant to the question.
+2. Output a FOCUSED schema context containing ONLY the information needed for SQL generation.
 
-⚠️  ITERATION LIMIT: You have maximum %d iterations to complete this task. Be efficient!
+⚠️  ITERATION LIMIT: You have maximum %d iterations. Be efficient!
 
-Available Tables:
+Full Database Schema:
 %s
 
 Question: %s
 
-Foreign key relationships are shown above. Use them to:
-1. Identify direct relationships between tables
-2. Find intermediate junction tables for many-to-many relationships
-3. Trace the join path from source to target tables
-
 You can use execute_sql to:
 - Verify data existence: SELECT COUNT(*) FROM table
-- Check join validity: SELECT COUNT(*) FROM t1 JOIN t2 ON ...
-- Explore sample data: SELECT * FROM table LIMIT 3
 - Check column values: SELECT DISTINCT column FROM table LIMIT 5
+- Explore sample data: SELECT * FROM table LIMIT 3
 
 Workflow:
-1. Identify tables with columns that seem relevant to the question.
-2. Use the foreign key relationships to find all necessary tables for joins.
-3. If you are unsure about a table's relevance, use 'execute_sql' to sample its data.
-4. Provide the final list of tables.
+1. Read the schema and identify tables/columns relevant to the question.
+2. If unsure about column values or table relevance, use execute_sql to verify.
+3. Output the final answer in the EXACT format below.
 
 Output Format:
 A) Use tool to explore:
@@ -301,19 +326,40 @@ A) Use tool to explore:
    Action: execute_sql
    Action Input: [SQL query]
 
-B) Give final answer:
+B) Give final answer (MUST follow this exact format):
    Thought: [reasoning]
-   Final Answer: table1, table2, table3
+   Final Answer:
+   TABLES: table1, table2
+   CONTEXT:
+   [Write a focused schema description here. Include ONLY:]
+   [- Tables and columns needed for the query]
+   [- Column types, PK/FK markers]
+   [- Value statistics for columns referenced in WHERE/JOIN conditions]
+   [- Data quality warnings ONLY for columns used in the query]
+   [- Omit all irrelevant columns, tables, and notes]
 
-IMPORTANT:
-- Output comma-separated table names only in Final Answer
-- Include ALL tables needed for joins (don't miss intermediate tables)
-- For NOT queries, include base table
-- For foreign key columns, include referenced tables
-- If all tables needed, output: all
-- If no tables needed, output: none
+Example Final Answer format:
+   Final Answer:
+   TABLES: orders, customers
+   CONTEXT:
+   Table orders (50000 rows):
+     - order_id: INTEGER [PK]
+     - customer_id: INTEGER → customers.customer_id
+     - order_date: DATE
+     - total_amount: REAL range=[0..9999]
+   Table customers (1000 rows):
+     - customer_id: INTEGER [PK]
+     - name: TEXT
+     - country: TEXT values=[US(400), UK(200), DE(150), ...]
 
-Output:`, claimedMaxIterations, schemaDesc.String(), query)
+CRITICAL RULES:
+- TABLES line: comma-separated table names (use "all" or "none" if appropriate)
+- CONTEXT section: Only include columns/info relevant to answering the question
+- For columns used in WHERE filters, include value statistics (values=[...] or range=[...])
+- For FK/JOIN columns, include the FK arrow notation (→ table.column)
+- Keep it compact — the SQL generator will use this context directly
+
+Output:`, claimedMaxIterations, schemaSection, query)
 
 	// Execute ReAct — dump prompt to file for post-analysis
 	if l.logger != nil {
@@ -323,7 +369,7 @@ Output:`, claimedMaxIterations, schemaDesc.String(), query)
 	}
 	agentResult, err := executor.Call(ctx, map[string]any{"input": prompt})
 	if err != nil {
-		return nil, []ReActStep{}, err
+		return nil, err
 	}
 
 	// Collect ReAct steps from handler
@@ -339,36 +385,137 @@ Output:`, claimedMaxIterations, schemaDesc.String(), query)
 		})
 	}
 
-	// Extract final result
+	// Extract final result — parse TABLES and CONTEXT sections
 	if output, ok := agentResult["output"].(string); ok {
-		// Take first line only (LLM may include extra explanation)
-		lines := strings.Split(output, "\n")
-		firstLine := strings.TrimSpace(lines[0])
+		tables, contextPrompt := parseSchemaLinkOutput(output)
 
-		if firstLine == "all" {
-			result := make([]string, 0, len(allTables))
+		if len(tables) == 1 && tables[0] == "all" {
+			allTableNames := make([]string, 0, len(allTables))
 			for name := range allTables {
-				result = append(result, name)
+				allTableNames = append(allTableNames, name)
 			}
-			return result, schemaLinkingSteps, nil
+			return &SchemaLinkResult{Tables: allTableNames, Steps: schemaLinkingSteps, ContextPrompt: contextPrompt}, nil
 		}
 
-		if firstLine == "none" {
-			return []string{}, schemaLinkingSteps, nil
+		if len(tables) == 1 && tables[0] == "none" {
+			return &SchemaLinkResult{Tables: []string{}, Steps: schemaLinkingSteps, ContextPrompt: contextPrompt}, nil
 		}
 
-		tables := strings.Split(firstLine, ",")
-		result := make([]string, 0, len(tables))
-		for _, table := range tables {
-			table = strings.TrimSpace(table)
-			if table != "" {
-				result = append(result, table)
-			}
-		}
-		return result, schemaLinkingSteps, nil
+		// Auto-complete FK-referenced tables
+		tables = l.autoCompleteFKTables(tables, allTables)
+		return &SchemaLinkResult{Tables: tables, Steps: schemaLinkingSteps, ContextPrompt: contextPrompt}, nil
 	}
 
-	return nil, []ReActStep{}, fmt.Errorf("schema linking failed to produce a valid table list")
+	return nil, fmt.Errorf("schema linking failed to produce a valid table list")
+}
+
+// parseSchemaLinkOutput parses the structured output from schema linking.
+// Expected format:
+//
+//	TABLES: table1, table2
+//	CONTEXT:
+//	...focused schema text...
+//
+// Falls back to treating the entire output as comma-separated table names (legacy format).
+func parseSchemaLinkOutput(output string) (tables []string, contextPrompt string) {
+	output = strings.TrimSpace(output)
+
+	// Try to find TABLES: line
+	tablesIdx := strings.Index(output, "TABLES:")
+	contextIdx := strings.Index(output, "CONTEXT:")
+
+	if tablesIdx >= 0 {
+		// Extract TABLES section
+		tablesStart := tablesIdx + len("TABLES:")
+		tablesEnd := len(output)
+		if contextIdx > tablesStart {
+			tablesEnd = contextIdx
+		}
+		tablesLine := strings.TrimSpace(output[tablesStart:tablesEnd])
+		// Take only first line of tables section
+		if nlIdx := strings.IndexByte(tablesLine, '\n'); nlIdx >= 0 {
+			tablesLine = strings.TrimSpace(tablesLine[:nlIdx])
+		}
+		for _, t := range strings.Split(tablesLine, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				tables = append(tables, t)
+			}
+		}
+
+		// Extract CONTEXT section
+		if contextIdx >= 0 {
+			contextPrompt = strings.TrimSpace(output[contextIdx+len("CONTEXT:"):])
+		}
+		return
+	}
+
+	// Legacy fallback: first line is comma-separated table names
+	lines := strings.Split(output, "\n")
+	firstLine := strings.TrimSpace(lines[0])
+	for _, t := range strings.Split(firstLine, ",") {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			tables = append(tables, t)
+		}
+	}
+	return
+}
+
+// autoCompleteFKTables adds FK-referenced tables that were selected tables depend on.
+// For each selected table, if it has FK references to another table not in the set, add it.
+// Also adds tables that reference selected tables (reverse FK — bridge tables).
+func (l *LLMSchemaLinker) autoCompleteFKTables(selected []string, allTables map[string]*TableInfo) []string {
+	selectedSet := make(map[string]bool, len(selected))
+	for _, t := range selected {
+		selectedSet[t] = true
+	}
+
+	// Forward FK: selected table references another table → add it
+	for _, tableName := range selected {
+		table, ok := allTables[tableName]
+		if !ok {
+			continue
+		}
+		for _, fk := range table.ForeignKeys {
+			if !selectedSet[fk.ReferencedTable] {
+				if _, exists := allTables[fk.ReferencedTable]; exists {
+					selectedSet[fk.ReferencedTable] = true
+					if l.logger != nil {
+						l.logger.Printf("📋 Auto-added FK-referenced table: %s (referenced by %s.%s)\n",
+							fk.ReferencedTable, tableName, fk.ColumnName)
+					}
+				}
+			}
+		}
+	}
+
+	// Reverse FK: if an unselected table references a selected table, and that
+	// unselected table is also referenced by another selected table, add it (bridge table detection)
+	for name, table := range allTables {
+		if selectedSet[name] {
+			continue
+		}
+		refsSelected := 0
+		for _, fk := range table.ForeignKeys {
+			if selectedSet[fk.ReferencedTable] {
+				refsSelected++
+			}
+		}
+		// If this unselected table references 2+ selected tables, it's likely a bridge table
+		if refsSelected >= 2 {
+			selectedSet[name] = true
+			if l.logger != nil {
+				l.logger.Printf("📋 Auto-added bridge table: %s (references %d selected tables)\n", name, refsSelected)
+			}
+		}
+	}
+
+	result := make([]string, 0, len(selectedSet))
+	for t := range selectedSet {
+		result = append(result, t)
+	}
+	return result
 }
 
 // ExtractTableInfo extracts table info from Rich Context
