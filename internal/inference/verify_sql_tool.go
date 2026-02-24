@@ -85,21 +85,22 @@ func (t *VerifySQLTool) Call(ctx context.Context, input string) (string, error) 
 			report.WriteString(fmt.Sprintf("  Row %d: %v\n", i+1, data.Rows[i]))
 		}
 
-		// 5. Check for NULL values in results
-		hasNull := false
+		// 5. Check for NULL values in results — only warn if majority are NULL
+		nullCount := 0
+		totalValues := 0
 		for _, row := range data.Rows {
 			for _, val := range row {
+				totalValues++
 				if val == nil {
-					hasNull = true
-					break
+					nullCount++
 				}
 			}
-			if hasNull {
-				break
-			}
 		}
-		if hasNull {
-			warnings = append(warnings, "⚠️  Results contain NULL values. Consider adding IS NOT NULL filters if NULLs are unexpected.")
+		if totalValues > 0 {
+			nullRatio := float64(nullCount) / float64(totalValues)
+			if nullRatio > 0.5 {
+				warnings = append(warnings, fmt.Sprintf("⚠️  %.0f%% of result values are NULL. This may indicate a wrong JOIN or missing table. Double-check JOIN conditions.", nullRatio*100))
+			}
 		}
 	}
 

@@ -316,6 +316,8 @@ B) Give answer:
 3. Efficiency: Only use execute_sql when truly uncertain
 4. No repetition: If stuck, try different approach
 5. Final Answer: SQL only, no explanations
+6. NEVER give up: Always output a valid SQL query. NEVER output comments, empty strings, or SELECT 0/1.
+   If you cannot find the right table or column, write your best-guess query.
 
 `)
 
@@ -403,7 +405,88 @@ func (p *Pipeline) extractSQL(response string) string {
 		}
 	}
 
-	return strings.TrimSpace(response)
+	result := strings.TrimSpace(response)
+
+	// Sanitize give-up patterns: if LLM output a comment, placeholder, or empty string,
+	// try to extract any SELECT statement from the full response as fallback
+	if p.isGiveUpSQL(result) {
+		// Try to find any SELECT statement in the original response
+		if fallback := p.extractFallbackSQL(response); fallback != "" {
+			p.Logger.Printf("⚠️  extractSQL: LLM gave up (%q), using fallback: %s\n", result[:min(len(result), 50)], fallback[:min(len(fallback), 100)])
+			return fallback
+		}
+		// If truly nothing, return SELECT 1 (better than empty which crashes evaluation)
+		p.Logger.Printf("⚠️  extractSQL: LLM gave up with no fallback, returning SELECT 1\n")
+		return "SELECT 1"
+	}
+
+	return result
+}
+
+// isGiveUpSQL detects if the SQL is a give-up pattern (empty, comment, placeholder)
+func (p *Pipeline) isGiveUpSQL(sql string) bool {
+	if sql == "" {
+		return true
+	}
+	upper := strings.ToUpper(strings.TrimSpace(sql))
+	// Comment-only
+	if strings.HasPrefix(sql, "--") || strings.HasPrefix(sql, "/*") {
+		return true
+	}
+	// Hardcoded placeholder values
+	if upper == "SELECT 0" || upper == "SELECT 0;" ||
+		upper == "SELECT 1" || upper == "SELECT 1;" ||
+		upper == "SELECT NULL" || upper == "SELECT NULL;" {
+		return true
+	}
+	// Not a SQL statement at all
+	if !strings.HasPrefix(upper, "SELECT") && !strings.HasPrefix(upper, "WITH") {
+		return true
+	}
+	return false
+}
+
+// extractFallbackSQL tries to find a valid SELECT statement in the raw response text
+func (p *Pipeline) extractFallbackSQL(response string) string {
+	upper := strings.ToUpper(response)
+	// Find the last SELECT statement (likely the most refined one)
+	lastIdx := strings.LastIndex(upper, "SELECT ")
+	if lastIdx < 0 {
+		return ""
+	}
+
+	candidate := strings.TrimSpace(response[lastIdx:])
+	// Take until end of SQL (semicolon, double newline, or explanatory text)
+	lines := strings.Split(candidate, "\n")
+	var sqlLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" && len(sqlLines) > 0 {
+			break
+		}
+		if strings.HasPrefix(trimmed, "This ") || strings.HasPrefix(trimmed, "The ") ||
+			strings.HasPrefix(trimmed, "Note:") || strings.HasPrefix(trimmed, "Thought:") {
+			break
+		}
+		sqlLines = append(sqlLines, line)
+	}
+
+	sql := strings.TrimSpace(strings.Join(sqlLines, "\n"))
+	sql = strings.TrimSuffix(sql, ";")
+	sql = strings.TrimSpace(sql)
+
+	if sql != "" && !p.isGiveUpSQL(sql) {
+		return sql
+	}
+	return ""
+}
+
+// min returns the smaller of two ints
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // SQLTool SQL execution tool
@@ -529,11 +612,14 @@ func (t *ClarifyTool) Call(ctx context.Context, input string) (string, error) {
 // buildSpiderBestPractices returns SQL best practices for Spider benchmark
 func (p *Pipeline) buildSpiderBestPractices() string {
 	return `SQL Rules & Best Practices:
-1. Type Mismatch (TEXT storing numbers):
-   - Use CAST(field AS INTEGER/REAL) for comparisons, sorting, and aggregation
-   - Filter non-numeric values: WHERE field IS NOT NULL AND field != '' AND field != 'null'
-2. Whitespace: If quality issues mention whitespace, use TRIM(field) in JOIN/WHERE/GROUP BY
-3. NULL handling: NULL ≠ 0. Filter with IS NOT NULL. For TEXT fields, also check field != ''
+1. Type Mismatch — ONLY when QualityIssues explicitly flags a column:
+   - Only CAST when you KNOW the column stores pure numeric strings as TEXT
+   - NEVER CAST time/duration/date strings
+   - Prefer CAST(... AS REAL) over CAST(... AS INTEGER) to preserve decimals
+2. Whitespace: ONLY use TRIM() when QualityIssues specifically mentions whitespace for that column
+3. NULL handling — For WHERE-clause matching ONLY:
+   - Use IS NOT NULL only when filtering JOIN keys or matching specific values
+   - Do NOT add IS NOT NULL or != '' to filter result rows
 4. String matching:
    - Use exact values from Rich Context when available
    - In ReAct mode: use execute_sql to find exact values when uncertain
@@ -541,13 +627,22 @@ func (p *Pipeline) buildSpiderBestPractices() string {
    - "Highest/Lowest/Top N": ORDER BY col DESC/ASC LIMIT N (NOT MAX/MIN which returns 1 row)
    - "Count by X": SELECT X, COUNT(*) ... GROUP BY X (MUST include GROUP BY)
    - "Rate/Percentage": CAST(num AS REAL) / CAST(denom AS REAL) (avoid integer division)
+   - "Average count of X per Y": MUST use subquery — first GROUP BY Y, then AVG
+   - After JOIN, count entities with COUNT(DISTINCT entity.id) not COUNT(*)
 6. Extreme values with ties:
    - Use subquery: WHERE col = (SELECT MAX/MIN(col) FROM table)
    - AVOID ORDER BY + LIMIT 1 (misses ties)
    - Exception: question says "one" or "any one" → LIMIT 1 is OK
-7. Duplicates: When listing items from JOINs, consider DISTINCT to avoid duplicates
+7. DISTINCT — decide based on context:
+   - USE when: "different", "unique", "distinct", listing attributes from JOINs
+   - DO NOT USE when: "list all records", already using GROUP BY
+   - After JOIN counting: COUNT(DISTINCT entity.id)
 8. Orphan records: If quality issues mention orphans, use LEFT JOIN instead of INNER JOIN
 9. Value verification: When using specific text values in WHERE, verify which column contains it first
+10. ABSOLUTE RULES:
+   - You MUST always output a valid executable SQL query
+   - NEVER output empty strings, SQL comments, or placeholder values (SELECT 0)
+   - Use EXACT table and column names as shown in schema
 
 `
 }
@@ -556,28 +651,67 @@ func (p *Pipeline) buildSpiderBestPractices() string {
 // BIRD-specific: evidence-driven, projection-focused, DISTINCT-aware
 func (p *Pipeline) buildBirdBestPractices() string {
 	return `SQL Rules & Best Practices (BIRD):
+
 1. EVIDENCE IS CRITICAL: The "Evidence" section contains exact column mappings, value constraints, and formulas.
    - If evidence says "X refers to Y = 'Z'" → you MUST use column Y with value 'Z'
-   - If evidence gives a formula (e.g., "percentage = DIVIDE(A, B)") → use that exact formula
-   - If evidence defines a threshold (e.g., "normal range refers to X > 900 AND X < 2000") → use those exact bounds
+   - If evidence gives a formula → use that exact formula
+   - If evidence defines a threshold → use those exact bounds
    - NEVER ignore or reinterpret evidence constraints
+
 2. Projection (SELECT columns):
-   - Return ONLY the columns the question asks for — no extra columns
-   - If question asks "what is X" → SELECT X only, not X plus other info
-   - Match the gold column count: 1 question = 1 column unless explicitly multi-column
+   - Return ONLY the columns the question asks for — no extra columns, no concatenation
+   - Do NOT concatenate columns (e.g., location || ', ' || country) unless evidence explicitly requires it
+   - If question asks "what is the time/name/value" → return that exact column, not a computed equivalent
    - When question asks for a name/description, JOIN to get the text — do NOT return IDs
-3. DISTINCT usage:
-   - Use DISTINCT only when the question says "different", "unique", "distinct", or when JOINs produce actual duplicates
-   - Do NOT add DISTINCT by default — many queries expect duplicate rows
-   - If unsure, run the query first and check for unintended duplicates
-4. Type Mismatch: Use CAST(field AS INTEGER/REAL) for TEXT columns storing numbers
+
+3. DISTINCT — decide based on context:
+   USE DISTINCT when:
+   - Question says "different", "unique", "distinct", "how many types/kinds"
+   - Listing entity attributes after JOINs (e.g., "what colors", "which cities")
+   - Counting entities after JOIN: use COUNT(DISTINCT entity.id) not COUNT(*)
+   DO NOT use DISTINCT when:
+   - Question says "list all", "list the records/entries"
+   - Already using GROUP BY (GROUP BY implies uniqueness)
+   - Question asks for all occurrences (e.g., "list badges obtained" includes repeats)
+
+4. Type Mismatch — ONLY when Rich Context or QualityIssues explicitly flags a column:
+   - Only CAST when you KNOW the column stores pure numeric strings as TEXT
+   - NEVER CAST time strings (like "1:23.456"), duration strings (like "59.555"), or dates
+   - If CAST is needed, prefer CAST(... AS REAL) over CAST(... AS INTEGER) to preserve decimals
+   - When unsure about data format, use execute_sql to check: SELECT col FROM table LIMIT 5
+
 5. Percentage/Rate: Always use CAST(... AS REAL) to avoid integer division truncation
+
 6. IIF/CASE patterns: For yes/no or conditional results, use IIF(condition, 'YES', 'NO') or CASE WHEN
+
 7. Aggregation:
    - "Highest/Top N": ORDER BY col DESC LIMIT N
    - "Rate/Percentage": CAST(numerator AS REAL) * 100 / denominator
-8. NULL handling: NULL ≠ 0 ≠ ''. Filter with IS NOT NULL, and for TEXT also check != ''
-9. Date handling: Use substr(date, 1, 10) or LIKE 'YYYY-MM-DD%' for date prefix matching
+   - "Average count of X per Y": MUST use subquery — first GROUP BY Y to get counts, then AVG over counts
+   - After JOIN, if counting entities (cards, users, etc.), use COUNT(DISTINCT entity.id)
+   - "between X and/to Y" → use SQL BETWEEN (includes BOTH endpoints)
+
+8. NULL/Empty handling — ONLY for WHERE-clause matching:
+   - Use IS NOT NULL only when filtering JOIN keys or matching specific values
+   - Do NOT add IS NOT NULL or != '' to filter result rows — return whatever the database gives
+   - Do NOT add TRIM() unless QualityIssues specifically flags whitespace for that column
+   - Do NOT add extra filtering conditions beyond what the question asks
+
+9. Date handling:
+   - Use date(column) for date comparisons to strip time components
+   - "after date D" → date(column) > 'D' (excludes D itself)
+   - "before date D" → date(column) < 'D'
+   - For year extraction: STRFTIME('%%Y', column) = 'YYYY'
+
+10. Table and Column names:
+   - Use EXACT table and column names as shown in the schema — do NOT change capitalization or pluralization
+   - If the schema shows 'Patient', write 'Patient', NOT 'patients'
+
+11. ABSOLUTE RULES:
+   - You MUST always output a valid executable SQL query
+   - NEVER output empty strings, SQL comments (-- ...), or placeholder values (SELECT 0, SELECT 1)
+   - NEVER hardcode result values — always let the database compute the answer
+   - If unsure about schema, write your best-guess query and let the database validate it
 
 `
 }
