@@ -320,25 +320,25 @@ Workflow:
 2. If unsure about column values or table relevance, use execute_sql to verify.
 3. Output the final answer in the EXACT format below.
 
-Output Format:
-A) Use tool to explore:
+IMPORTANT: Each iteration can only perform ONE action. Do NOT output multiple actions in a single response.
+
+To explore data:
    Thought: [reasoning]
    Action: execute_sql
-   Action Input: [SQL query]
+   Action Input: [single SQL query]
 
-B) Give final answer (MUST follow this exact format):
+To give final answer (MUST follow this exact format):
    Thought: [reasoning]
    Final Answer:
    TABLES: table1, table2
    CONTEXT:
-   [Write a focused schema description here. Include ONLY:]
+   [Write a focused schema description. Include ONLY:]
    [- Tables and columns needed for the query]
    [- Column types, PK/FK markers]
    [- Value statistics for columns referenced in WHERE/JOIN conditions]
    [- Data quality warnings ONLY for columns used in the query]
-   [- Omit all irrelevant columns, tables, and notes]
 
-Example Final Answer format:
+Example Final Answer:
    Final Answer:
    TABLES: orders, customers
    CONTEXT:
@@ -353,6 +353,7 @@ Example Final Answer format:
      - country: TEXT values=[US(400), UK(200), DE(150), ...]
 
 CRITICAL RULES:
+- ONE action per iteration — never output multiple Action/Action Input pairs
 - TABLES line: comma-separated table names (use "all" or "none" if appropriate)
 - CONTEXT section: Only include columns/info relevant to answering the question
 - For columns used in WHERE filters, include value statistics (values=[...] or range=[...])

@@ -313,12 +313,13 @@ B) Give answer:
 
 		// Critical rules
 		sb.WriteString(`Critical Rules:
-1. Field Order: SELECT fields MUST match expected order exactly
-2. Iterations: 10 max (update_rich_context doesn't count). Track: "Iteration X/10"
-3. MUST verify: Always call verify_sql before Final Answer
-4. No repetition: If stuck, try different approach
-5. Final Answer: SQL only, no explanations
-6. NEVER give up: Always output a valid SQL query. NEVER output comments, empty strings, or SELECT 0/1.
+1. ONE action per iteration — never output multiple Action/Action Input pairs in a single response
+2. Field Order: SELECT fields MUST match expected order exactly
+3. Iterations: 10 max (update_rich_context doesn't count). Track: "Iteration X/10"
+4. MUST verify: Always call verify_sql before Final Answer
+5. No repetition: If stuck, try different approach
+6. Final Answer: SQL only, no explanations
+7. NEVER give up: Always output a valid SQL query. NEVER output comments, empty strings, or SELECT 0/1.
    If you cannot find the right table or column, write your best-guess query.
 
 `)
