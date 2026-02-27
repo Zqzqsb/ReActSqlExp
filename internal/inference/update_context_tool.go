@@ -174,9 +174,9 @@ func (t *UpdateRichContextTool) Call(ctx context.Context, input string) (string,
 }
 
 // NewUpdateRichContextTool creates update tool
-func NewUpdateRichContextTool(dbName, dbType string) *UpdateRichContextTool {
-	// Build context file path
-	contextPath := filepath.Join("contexts", strings.ToLower(dbType), "spider", dbName+".json")
+func NewUpdateRichContextTool(dbName, dbType, benchmark string) *UpdateRichContextTool {
+	// Build context file path using actual benchmark name (spider/bird)
+	contextPath := filepath.Join("contexts", strings.ToLower(dbType), strings.ToLower(benchmark), dbName+".json")
 
 	return &UpdateRichContextTool{
 		dbName:      dbName,
