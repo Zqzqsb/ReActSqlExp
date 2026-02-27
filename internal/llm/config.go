@@ -10,18 +10,22 @@ import (
 
 // ModelConfig LLM model config
 type ModelConfig struct {
-	ModelName string `json:"model_name"`
-	Token     string `json:"token"`
-	BaseURL   string `json:"base_url"`
+	ModelName       string `json:"model_name"`
+	Token           string `json:"token"`
+	BaseURL         string `json:"base_url"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // ConfigFile config file structure
 type ConfigFile struct {
-	DeepSeekV3  ModelConfig `json:"deepseek_v3"`
-	DeepSeekV32 ModelConfig `json:"deepseek_v3_2"`
-	QwenMax     ModelConfig `json:"qwen_max"`
-	Qwen3Max    ModelConfig `json:"qwen3_max"`
-	AliDeepSeek ModelConfig `json:"ali_deepseek_v3_2"`
+	DeepSeekV3     ModelConfig `json:"deepseek_v3"`
+	DeepSeekV32    ModelConfig `json:"deepseek_v3_2"`
+	QwenMax        ModelConfig `json:"qwen_max"`
+	Qwen3Max       ModelConfig `json:"qwen3_max"`
+	Qwen35         ModelConfig `json:"qwen3.5"`
+	AliDeepSeek    ModelConfig `json:"ali_deepseek_v3_2"`
+	DoubaoSeed2Pro  ModelConfig `json:"doubao_seed2_pro"`
+	Qwen3CoderPlus ModelConfig `json:"qwen3_coder_plus"`
 }
 
 var (
@@ -116,7 +120,10 @@ const (
 	ModelDeepSeekV32    ModelType = "deepseek-v3.2"
 	ModelQwenMax        ModelType = "qwen-max"
 	ModelQwen3Max       ModelType = "qwen3-max"
+	ModelQwen35         ModelType = "qwen3.5"
 	ModelAliDeepSeekV32 ModelType = "ali-deepseek-v3.2"
+	ModelDoubaoSeed2Pro ModelType = "doubao-seed2-pro"
+	ModelQwen3CoderPlus ModelType = "qwen3-coder-plus"
 )
 
 // GetModelByType gets config by model type
@@ -131,8 +138,14 @@ func GetModelByType(modelType ModelType) ModelConfig {
 		return cfg.QwenMax
 	case ModelQwen3Max:
 		return cfg.Qwen3Max
+	case ModelQwen35:
+		return cfg.Qwen35
 	case ModelAliDeepSeekV32:
 		return cfg.AliDeepSeek
+	case ModelDoubaoSeed2Pro:
+		return cfg.DoubaoSeed2Pro
+	case ModelQwen3CoderPlus:
+		return cfg.Qwen3CoderPlus
 	default:
 		return cfg.DeepSeekV3
 	}
@@ -149,8 +162,14 @@ func GetModelDisplayName(modelType ModelType) string {
 		return "Qwen-Max (Aliyun)"
 	case ModelQwen3Max:
 		return "Qwen3-Max (Aliyun)"
+	case ModelQwen35:
+		return "Qwen3.5 (Aliyun)"
 	case ModelAliDeepSeekV32:
 		return "DeepSeek-V3.2 (Aliyun)"
+	case ModelDoubaoSeed2Pro:
+		return "Doubao-Seed2-Pro (Volcano)"
+	case ModelQwen3CoderPlus:
+		return "Qwen3-Coder-Plus (Aliyun)"
 	default:
 		return "Unknown"
 	}

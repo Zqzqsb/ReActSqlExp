@@ -649,8 +649,14 @@ func parseModelType(modelType string) llm.ModelType {
 		return llm.ModelQwenMax
 	case "qwen3-max":
 		return llm.ModelQwen3Max
+	case "qwen3.5":
+		return llm.ModelQwen35
+	case "doubao-seed2-pro":
+		return llm.ModelDoubaoSeed2Pro
 	case "ali-deepseek-v3.2":
 		return llm.ModelAliDeepSeekV32
+	case "qwen3-coder-plus":
+		return llm.ModelQwen3CoderPlus
 	default:
 		log.Fatalf("Unknown model type: %s", modelType)
 		return ""

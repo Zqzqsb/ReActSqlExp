@@ -43,7 +43,7 @@ type BirdCase struct {
 
 func main() {
 	benchmark := flag.String("benchmark", "", "Benchmark: spider | bird (if empty, will ask interactively)")
-	modelType := flag.String("model", "deepseek-v3", "Model: deepseek-v3 | deepseek-v3.2 | qwen-max | qwen3-max | ali-deepseek-v3.2")
+	modelType := flag.String("model", "deepseek-v3", "Model: deepseek-v3 | deepseek-v3.2 | qwen-max | qwen3-max | qwen3.5 | doubao-seed2-pro | qwen3-coder-plus | ali-deepseek-v3.2")
 	inputFile := flag.String("input", "", "Input file path (auto-detected)")
 	outputFile := flag.String("output", "", "Output file path (auto-detected)")
 	limit := flag.Int("limit", 0, "Limit number of examples (0 = all)")
@@ -101,13 +101,16 @@ func main() {
 			{"qwen-max", "Qwen-Max (Aliyun)", cfg.QwenMax.ModelName},
 			{"qwen3-max", "Qwen3-Max (Aliyun)", cfg.Qwen3Max.ModelName},
 			{"ali-deepseek-v3.2", "DeepSeek-V3.2 (Aliyun)", cfg.AliDeepSeek.ModelName},
+			{"qwen3.5", "Qwen3.5 (Aliyun)", cfg.Qwen35.ModelName},
+			{"doubao-seed2-pro", "Doubao-Seed2-Pro (Volcano)", cfg.DoubaoSeed2Pro.ModelName},
+			{"qwen3-coder-plus", "Qwen3-Coder-Plus (Aliyun)", cfg.Qwen3CoderPlus.ModelName},
 		}
 
 		for i, opt := range modelOptions {
 			fmt.Printf("  %d. %-25s — %s\n", i+1, opt.displayName, opt.modelName)
 		}
 		fmt.Println()
-		fmt.Print("Enter choice [1-5] (default: 1): ")
+		fmt.Printf("Enter choice [1-%d] (default: 1): ", len(modelOptions))
 
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
@@ -361,10 +364,16 @@ func parseModelType(modelType string) llm.ModelType {
 		return llm.ModelQwenMax
 	case "qwen3-max":
 		return llm.ModelQwen3Max
+	case "qwen3.5":
+		return llm.ModelQwen35
+	case "doubao-seed2-pro":
+		return llm.ModelDoubaoSeed2Pro
 	case "ali-deepseek-v3.2":
 		return llm.ModelAliDeepSeekV32
+	case "qwen3-coder-plus":
+		return llm.ModelQwen3CoderPlus
 	default:
-		log.Fatalf("Unknown model type: %s. Available: deepseek-v3, deepseek-v3.2, qwen-max, qwen3-max, ali-deepseek-v3.2", modelType)
+		log.Fatalf("Unknown model type: %s. Available: deepseek-v3, deepseek-v3.2, qwen-max, qwen3-max, qwen3.5, doubao-seed2-pro, qwen3-coder-plus, ali-deepseek-v3.2", modelType)
 		return ""
 	}
 }
