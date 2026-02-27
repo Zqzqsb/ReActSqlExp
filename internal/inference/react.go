@@ -97,7 +97,7 @@ func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt st
 	}
 
 	if p.config.EnableProofread {
-		updateTool := NewUpdateRichContextTool(p.config.DBName, p.config.DBType)
+		updateTool := NewUpdateRichContextTool(p.config.DBName, p.config.DBType, p.config.Benchmark)
 		updateTool.logger = p.Logger
 		toolsList = append(toolsList, updateTool)
 	}
@@ -119,10 +119,10 @@ func (p *Pipeline) reactLoop(ctx context.Context, query string, contextPrompt st
 		})
 	}
 
-	// Use higher actual iterations than what we show in prompt
-	// This gives the model more chances to complete while not overwhelming the prompt
-	actualMaxIterations := p.config.MaxIterations * 4 // e.g., user sets 5, we allow 20
-	claimedMaxIterations := p.config.MaxIterations     // what we tell the model
+	// Tell the model a realistic iteration count so it doesn't rush
+	// Allow slightly more actual iterations as safety margin
+	claimedMaxIterations := 10
+	actualMaxIterations := 15
 
 	executor, err := agents.Initialize(
 		p.llm,
@@ -249,18 +249,19 @@ func (p *Pipeline) buildPrompt(query string, contextPrompt string, crossTableSum
 	if p.config.ClarifyMode == "force" && len(p.config.ResultFields) > 0 {
 		sb.WriteString("⚠️ REQUIRED OUTPUT FIELDS:\n")
 		fieldsStr := strings.Join(p.config.ResultFields, ", ")
-		sb.WriteString(fmt.Sprintf("Your SQL query MUST return EXACTLY these fields in this EXACT ORDER: %s\n", fieldsStr))
+		sb.WriteString(fmt.Sprintf("Your SQL SELECT clause MUST return EXACTLY these fields in this EXACT ORDER: %s\n", fieldsStr))
 		if p.config.ResultFieldsDescription != "" {
 			sb.WriteString(fmt.Sprintf("Field descriptions: %s\n", p.config.ResultFieldsDescription))
 		}
-		sb.WriteString("\nCRITICAL: Use these field names WITHOUT table prefixes (e.g., 'Name' not 'singer.Name').\n")
+		sb.WriteString("\nCRITICAL: The SELECT output column names must match these fields. You may still use table.column syntax in the SQL body for disambiguation.\n")
 		sb.WriteString("Any deviation from this field list will be considered INCORRECT.\n\n")
 	}
 
 	if isReact {
 		// Tools available
 		sb.WriteString(`Available Tools:
-- execute_sql: Execute SQL and see results`)
+- execute_sql: Execute SQL and see results
+- verify_sql: Verify SQL correctness — checks syntax, executes, and reports row count + sample results + warnings`)
 		if p.config.ClarifyMode == "on" {
 			sb.WriteString(`
 - clarify_fields: Ask which fields to return (when question doesn't specify)`)
@@ -285,11 +286,12 @@ Workflow:
 		}
 		if p.config.EnableProofread {
 			sb.WriteString(`
-4. If Rich Context conflicts with actual data → use update_rich_context`)
+3. If Rich Context conflicts with actual data → use update_rich_context`)
 		}
 		sb.WriteString(`
-5. Write SQL following best practices
-6. If uncertain → validate with execute_sql (use LIMIT/COUNT for large results)
+4. Write SQL following best practices
+5. MANDATORY: Use verify_sql to check your SQL before giving Final Answer
+6. If verify_sql reports issues → fix and re-verify
 7. Provide Final Answer
 
 `)
@@ -311,9 +313,9 @@ B) Give answer:
 
 		// Critical rules
 		sb.WriteString(`Critical Rules:
-1. Field Order: SELECT fields MUST match expected order exactly (no table prefixes)
-2. Iterations: 5 max (update_rich_context doesn't count). Track: "Iteration X/5"
-3. Efficiency: Only use execute_sql when truly uncertain
+1. Field Order: SELECT fields MUST match expected order exactly
+2. Iterations: 10 max (update_rich_context doesn't count). Track: "Iteration X/10"
+3. MUST verify: Always call verify_sql before Final Answer
 4. No repetition: If stuck, try different approach
 5. Final Answer: SQL only, no explanations
 6. NEVER give up: Always output a valid SQL query. NEVER output comments, empty strings, or SELECT 0/1.
@@ -658,13 +660,18 @@ func (p *Pipeline) buildBirdBestPractices() string {
    - If evidence defines a threshold → use those exact bounds
    - NEVER ignore or reinterpret evidence constraints
 
-2. Projection (SELECT columns):
+2. DO NOT ADD EXTRA CONDITIONS: Only add WHERE/HAVING conditions that are explicitly stated in the question or evidence.
+   - Do NOT infer filters from domain knowledge (e.g., do NOT add "status = 'A'" just because the question mentions "approved")
+   - Do NOT add conditions to "clean" data (e.g., "IS NOT NULL", "!= ''") unless the question specifically asks for it
+   - If the question says "list all X of Y", only filter by Y — do NOT add extra constraints on X
+
+3. Projection (SELECT columns):
    - Return ONLY the columns the question asks for — no extra columns, no concatenation
    - Do NOT concatenate columns (e.g., location || ', ' || country) unless evidence explicitly requires it
    - If question asks "what is the time/name/value" → return that exact column, not a computed equivalent
    - When question asks for a name/description, JOIN to get the text — do NOT return IDs
 
-3. DISTINCT — decide based on context:
+4. DISTINCT — decide based on context:
    USE DISTINCT when:
    - Question says "different", "unique", "distinct", "how many types/kinds"
    - Listing entity attributes after JOINs (e.g., "what colors", "which cities")
@@ -674,40 +681,40 @@ func (p *Pipeline) buildBirdBestPractices() string {
    - Already using GROUP BY (GROUP BY implies uniqueness)
    - Question asks for all occurrences (e.g., "list badges obtained" includes repeats)
 
-4. Type Mismatch — ONLY when Rich Context or QualityIssues explicitly flags a column:
+5. Type Mismatch — ONLY when Rich Context or QualityIssues explicitly flags a column:
    - Only CAST when you KNOW the column stores pure numeric strings as TEXT
    - NEVER CAST time strings (like "1:23.456"), duration strings (like "59.555"), or dates
    - If CAST is needed, prefer CAST(... AS REAL) over CAST(... AS INTEGER) to preserve decimals
    - When unsure about data format, use execute_sql to check: SELECT col FROM table LIMIT 5
 
-5. Percentage/Rate: Always use CAST(... AS REAL) to avoid integer division truncation
+6. Percentage/Rate: Always use CAST(... AS REAL) to avoid integer division truncation
 
-6. IIF/CASE patterns: For yes/no or conditional results, use IIF(condition, 'YES', 'NO') or CASE WHEN
+7. IIF/CASE patterns: For yes/no or conditional results, use IIF(condition, 'YES', 'NO') or CASE WHEN
 
-7. Aggregation:
-   - "Highest/Top N": ORDER BY col DESC LIMIT N
+8. Aggregation:
+   - "Highest/Lowest/Top N/Bottom N": Always use ORDER BY col DESC/ASC LIMIT N
+   - Do NOT use WHERE col = (SELECT MAX/MIN(...)) — this returns ties and may not match expected results
    - "Rate/Percentage": CAST(numerator AS REAL) * 100 / denominator
    - "Average count of X per Y": MUST use subquery — first GROUP BY Y to get counts, then AVG over counts
    - After JOIN, if counting entities (cards, users, etc.), use COUNT(DISTINCT entity.id)
    - "between X and/to Y" → use SQL BETWEEN (includes BOTH endpoints)
 
-8. NULL/Empty handling — ONLY for WHERE-clause matching:
+9. NULL/Empty handling — ONLY for WHERE-clause matching:
    - Use IS NOT NULL only when filtering JOIN keys or matching specific values
    - Do NOT add IS NOT NULL or != '' to filter result rows — return whatever the database gives
    - Do NOT add TRIM() unless QualityIssues specifically flags whitespace for that column
-   - Do NOT add extra filtering conditions beyond what the question asks
 
-9. Date handling:
+10. Date handling:
    - Use date(column) for date comparisons to strip time components
    - "after date D" → date(column) > 'D' (excludes D itself)
    - "before date D" → date(column) < 'D'
    - For year extraction: STRFTIME('%%Y', column) = 'YYYY'
 
-10. Table and Column names:
+11. Table and Column names:
    - Use EXACT table and column names as shown in the schema — do NOT change capitalization or pluralization
    - If the schema shows 'Patient', write 'Patient', NOT 'patients'
 
-11. ABSOLUTE RULES:
+12. ABSOLUTE RULES:
    - You MUST always output a valid executable SQL query
    - NEVER output empty strings, SQL comments (-- ...), or placeholder values (SELECT 0, SELECT 1)
    - NEVER hardcode result values — always let the database compute the answer
