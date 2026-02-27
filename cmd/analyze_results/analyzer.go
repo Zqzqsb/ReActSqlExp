@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"hash/fnv"
+	"io"
 	"sort"
 	"strings"
 )
@@ -44,6 +46,7 @@ func (a *SQLAnalyzer) AnalyzeSQL(input InputResult, gtResult, predResult *ExecRe
 		PredSQL:      input.PredSQL,
 		Thinking:     input.Thinking,
 		Ambiguous:    input.Ambiguous,
+		Difficulty:   input.Difficulty,
 		IsCorrect:    false,
 		IsEquivalent: false,
 	}
@@ -288,6 +291,7 @@ func (a *SQLAnalyzer) MergeStats(other *ErrorStatistics) {
 	a.Stats.ProjectionErrorCount += other.ProjectionErrorCount
 	a.Stats.DataErrorCount += other.DataErrorCount
 	a.Stats.OtherErrorCount += other.OtherErrorCount
+	a.Stats.TimeoutCount += other.TimeoutCount
 	a.Stats.AmbiguousCount += other.AmbiguousCount
 	a.Stats.SPJCaseCount += other.SPJCaseCount
 	a.Stats.SPJCorrectCount += other.SPJCorrectCount
@@ -328,6 +332,146 @@ func minInt(values ...int) int {
 		}
 	}
 	return min
+}
+
+// ─── Hash-based row comparison ───────────────────────────────────
+
+// rowEntry stores a row's hash, original string key, and count for multiset comparison
+type rowEntry struct {
+	hash  uint64
+	key   string
+	count int
+}
+
+// hashRow computes FNV-1a hash of a row (joined with |) and returns both hash and key string.
+func hashRow(row []string) (uint64, string) {
+	h := fnv.New64a()
+	for i, v := range row {
+		if i > 0 {
+			h.Write([]byte{'|'})
+		}
+		io.WriteString(h, v)
+	}
+	key := strings.Join(row, "|")
+	return h.Sum64(), key
+}
+
+// hashRowNormalized computes hash on normalized values
+func hashRowNormalized(row []string) (uint64, string) {
+	h := fnv.New64a()
+	var sb strings.Builder
+	sb.Grow(len(row) * 16)
+	for i, v := range row {
+		nv := normalizeValue(v)
+		if i > 0 {
+			h.Write([]byte{'|'})
+			sb.WriteByte('|')
+		}
+		io.WriteString(h, nv)
+		sb.WriteString(nv)
+	}
+	return h.Sum64(), sb.String()
+}
+
+// buildRowCounts builds a hash→rowEntry multiset map from rows.
+// Uses hash bucketing; on collision, falls back to string key comparison.
+func buildRowCounts(rows [][]string, normalize bool) map[uint64][]rowEntry {
+	m := make(map[uint64][]rowEntry, len(rows))
+	for _, row := range rows {
+		var h uint64
+		var key string
+		if normalize {
+			h, key = hashRowNormalized(row)
+		} else {
+			h, key = hashRow(row)
+		}
+		bucket := m[h]
+		found := false
+		for i := range bucket {
+			if bucket[i].key == key {
+				bucket[i].count++
+				found = true
+				break
+			}
+		}
+		if !found {
+			m[h] = append(bucket, rowEntry{hash: h, key: key, count: 1})
+		}
+	}
+	return m
+}
+
+// totalEntries counts total unique entries across all buckets
+func totalEntries(m map[uint64][]rowEntry) int {
+	n := 0
+	for _, bucket := range m {
+		n += len(bucket)
+	}
+	return n
+}
+
+// matchMaps checks if two hash→rowEntry maps represent the same multiset
+func matchMaps(m1, m2 map[uint64][]rowEntry) bool {
+	if totalEntries(m1) != totalEntries(m2) {
+		return false
+	}
+	for h, bucket1 := range m1 {
+		bucket2, ok := m2[h]
+		if !ok {
+			return false
+		}
+		for _, e1 := range bucket1 {
+			found := false
+			for _, e2 := range bucket2 {
+				if e1.key == e2.key {
+					if e1.count != e2.count {
+						return false
+					}
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// compareRowSets compares two row sets using hash-first exact match, then normalized match.
+func compareRowSets(rows1, rows2 [][]string, matchingStrategy string) (bool, string) {
+	// Fast path: hash-based exact match
+	m1 := buildRowCounts(rows1, false)
+	m2 := buildRowCounts(rows2, false)
+
+	if matchMaps(m1, m2) {
+		return true, ""
+	}
+
+	// Slow path: normalize and re-hash
+	nm1 := buildRowCounts(rows1, true)
+	nm2 := buildRowCounts(rows2, true)
+
+	if matchMaps(nm1, nm2) {
+		return true, ""
+	}
+
+	// Not matching — determine error message
+	if totalEntries(nm1) != totalEntries(nm2) {
+		return false, fmt.Sprintf("data row count mismatch (strategy: %s)", matchingStrategy)
+	}
+
+	switch matchingStrategy {
+	case "exact_column_names":
+		return false, "data mismatch"
+	case "content_based_mapping":
+		return false, "column name mismatch and data mapping failed"
+	case "positional_comparison":
+		return false, "column name mismatch and positional data mismatch"
+	default:
+		return false, "data mismatch"
+	}
 }
 
 // areResultsEquivalent checks if two execution results are equivalent
@@ -485,71 +629,12 @@ func (a *SQLAnalyzer) areResultsEquivalent(result1, result2 *ExecResult) (bool, 
 	}
 
 	// Step 5: Compare data content (order-independent, preserving duplicates)
-	// Use map[string]int to count occurrences (not map[string]bool which deduplicates)
-	rowCounts1 := make(map[string]int)
-	rowCounts2 := make(map[string]int)
+	// Uses hash-first comparison: compute FNV hash per row for O(1) bucket lookup,
+	// only fall back to string comparison on hash collisions.
 
-	for _, row := range convertedRows1 {
-		rowStr := strings.Join(row, "|")
-		rowCounts1[rowStr]++
-	}
-
-	for _, row := range convertedRows2 {
-		rowStr := strings.Join(row, "|")
-		rowCounts2[rowStr]++
-	}
-
-	// Check if unique row counts match
-	if len(rowCounts1) != len(rowCounts2) {
-		return false, fmt.Sprintf("data row count mismatch (strategy: %s)", matchingStrategy)
-	}
-
-	// Check if each row exists in the other result set with the same count
-	for rowStr, count1 := range rowCounts1 {
-		count2, exists := rowCounts2[rowStr]
-		if exists && count1 == count2 {
-			continue
-		}
-		// Exact match failed, try loose matching (considering time types)
-		found := false
-		row1 := strings.Split(rowStr, "|")
-
-		for rowStr2, cnt2 := range rowCounts2 {
-			if cnt2 != count1 {
-				continue // multiplicity must match
-			}
-			row2 := strings.Split(rowStr2, "|")
-
-			if len(row1) != len(row2) {
-				continue
-			}
-
-			allMatch := true
-			for i := 0; i < len(row1); i++ {
-				if !areValuesEquivalent(row1[i], row2[i]) {
-					allMatch = false
-					break
-				}
-			}
-
-			if allMatch {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			switch matchingStrategy {
-			case "exact_column_names":
-				return false, "data mismatch"
-			case "content_based_mapping":
-				return false, "column name mismatch and data mapping failed"
-			case "positional_comparison":
-				return false, "column name mismatch and positional data mismatch"
-			default:
-				return false, "data mismatch"
-			}
-		}
+	matched, reason := compareRowSets(convertedRows1, convertedRows2, matchingStrategy)
+	if !matched {
+		return false, reason
 	}
 
 	// Passed all checks, consider equivalent
@@ -704,32 +789,19 @@ func normalizeTimeValue(s string) string {
 	return s
 }
 
+// normalizeValue normalizes a single value for loose comparison (trim, remove %, normalize time)
+func normalizeValue(val string) string {
+	val = strings.TrimSpace(val)
+	if isTimeValue(val) {
+		return normalizeTimeValue(val)
+	}
+	return strings.TrimSuffix(val, "%")
+}
+
 // areValuesEquivalent checks if two values are equivalent (with loose time comparison)
 func areValuesEquivalent(val1, val2 string) bool {
-	// Exact match
 	if val1 == val2 {
 		return true
 	}
-
-	// Check if both are time values
-	if isTimeValue(val1) && isTimeValue(val2) {
-		// Compare after normalization
-		norm1 := normalizeTimeValue(val1)
-		norm2 := normalizeTimeValue(val2)
-		return norm1 == norm2
-	}
-
-	// Check if percentage values (ignore % symbol)
-	norm1 := strings.TrimSpace(val1)
-	norm2 := strings.TrimSpace(val2)
-
-	// Compare after removing percent sign
-	norm1 = strings.TrimSuffix(norm1, "%")
-	norm2 = strings.TrimSuffix(norm2, "%")
-
-	if norm1 == norm2 {
-		return true
-	}
-
-	return false
+	return normalizeValue(val1) == normalizeValue(val2)
 }

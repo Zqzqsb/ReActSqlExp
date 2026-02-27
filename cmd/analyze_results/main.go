@@ -273,6 +273,7 @@ func main() {
 			defer wg.Done()
 			defer func() { <-sem }() // release slot
 
+			groupStart := time.Now()
 			localAnalyzer := NewSQLAnalyzer()
 
 			// Open one connection for all queries in this DB group
@@ -291,48 +292,113 @@ func main() {
 				}
 			}
 
+			const slowThreshold = 3 * time.Second
+			const execTimeout = 120 * time.Second
+
 			for _, idx := range g.indices {
 				input := inputResults[idx]
 				gtResult := &ExecResult{Success: false}
 				predResult := &ExecResult{Success: false}
 				var gtErr, predErr error
+				var timedOut bool
+
+				queryStart := time.Now()
+
+				// Skip DB execution for trivially classifiable cases
+				skipExec := !connected ||
+					input.PredSQL == "" ||
+					input.PredSQL == "AMBIGUOUS_QUERY" ||
+					NormalizeSQL(input.PredSQL) == NormalizeSQL(input.GTSQL)
 
 				if !connected {
 					errMsg := fmt.Sprintf("DB connection error: %v", err)
 					gtResult.Error = errMsg
 					predResult.Error = errMsg
-				} else {
-					// Execute gold SQL
-					gtData, ge := dbAdapter.ExecuteQuery(ctx, input.GTSQL)
+				} else if !skipExec {
+					// Execute with timeout
+					execCtx, cancel := context.WithTimeout(ctx, execTimeout)
+
+					gtData, ge := dbAdapter.ExecuteQuery(execCtx, input.GTSQL)
 					gtErr = ge
 					if ge == nil {
 						gtResult.Success = true
 						gtResult.Rows = ConvertQueryResultFormat(gtData)
 					} else {
 						gtResult.Error = ge.Error()
+						if execCtx.Err() != nil {
+							timedOut = true
+						}
 					}
 
-					// Execute predicted SQL
-					predData, pe := dbAdapter.ExecuteQuery(ctx, input.PredSQL)
-					predErr = pe
-					if pe == nil {
-						predResult.Success = true
-						predResult.Rows = ConvertQueryResultFormat(predData)
+					if !timedOut {
+						predData, pe := dbAdapter.ExecuteQuery(execCtx, input.PredSQL)
+						predErr = pe
+						if pe == nil {
+							predResult.Success = true
+							predResult.Rows = ConvertQueryResultFormat(predData)
+						} else {
+							predResult.Error = pe.Error()
+							if execCtx.Err() != nil {
+								timedOut = true
+							}
+						}
 					} else {
-						predResult.Error = pe.Error()
+						// Gold timed out, still try pred with fresh timeout
+						predCtx, predCancel := context.WithTimeout(ctx, execTimeout)
+						predData, pe := dbAdapter.ExecuteQuery(predCtx, input.PredSQL)
+						predErr = pe
+						if pe == nil {
+							predResult.Success = true
+							predResult.Rows = ConvertQueryResultFormat(predData)
+						} else {
+							predResult.Error = pe.Error()
+						}
+						predCancel()
 					}
+
+					cancel()
 				}
 
+				execDur := time.Since(queryStart)
+
+				// Analyze (comparison)
+				compareStart := time.Now()
 				ar := localAnalyzer.AnalyzeSQL(input, gtResult, predResult, gtErr, predErr)
+				compareDur := time.Since(compareStart)
+
+				// Override: if timed out, mark as timeout_error instead of execution_error
+				if timedOut && !ar.IsCorrect {
+					ar.ErrorType = "timeout_error"
+					ar.ErrorReason = fmt.Sprintf("SQL execution timed out after %s", execTimeout)
+					localAnalyzer.Stats.TimeoutCount++
+					fmt.Printf("\n  ⏰ TIMEOUT [%s] id=%d after %s — gold_err=%v pred_err=%v\n",
+						dbName, input.ID, execDur.Round(time.Millisecond), gtErr != nil, predErr != nil)
+				}
+
 				analysisResults[idx] = ar
 
+				totalDur := execDur + compareDur
+				if !timedOut && totalDur >= slowThreshold {
+					gtRows := 0
+					predRows := 0
+					if gtResult.Success {
+						gtRows = len(gtResult.Rows) - 1
+					}
+					if predResult.Success {
+						predRows = len(predResult.Rows) - 1
+					}
+					fmt.Printf("\n  ⚠️  SLOW [%s] id=%d exec=%s compare=%s gtRows=%d predRows=%d\n",
+						dbName, input.ID, execDur.Round(time.Millisecond), compareDur.Round(time.Millisecond), gtRows, predRows)
+				}
+
 				done := atomic.AddInt64(&processed, 1)
-				if done%100 == 0 || done == total {
+				if done%50 == 0 || done == total {
 					fmt.Printf("  ⏳ Processed %d/%d queries...\r", done, total)
 				}
 			}
 
 			// Merge local stats into global analyzer
+			fmt.Printf("\n  ✅ DB [%s] done: %d queries in %s\n", dbName, len(g.indices), time.Since(groupStart).Round(time.Millisecond))
 			mu.Lock()
 			analyzer.MergeStats(localAnalyzer.Stats)
 			mu.Unlock()
@@ -355,6 +421,7 @@ func main() {
 
 	// ── Step 10: Print summary ──
 	reporter.PrintSummary(stats, len(inputResults))
+	reporter.PrintDifficultyBreakdown(analysisResults)
 
 	// Save summary report
 	if err := reporter.GenerateSummaryReport(stats, len(inputResults)); err != nil {

@@ -17,6 +17,7 @@ type SpiderResult struct {
 	TimeSeconds    float64  `json:"time_seconds"`
 	LLMCalls       int      `json:"llm_calls"`
 	SelectedTables []string `json:"selected_tables"`
+	Difficulty     string   `json:"difficulty,omitempty"`
 }
 
 // LoadSpiderResultFile loads Spider evaluation result file
@@ -35,11 +36,12 @@ func LoadSpiderResultFile(filePath string) ([]InputResult, error) {
 	results := make([]InputResult, 0, len(spiderResults))
 	for i, sr := range spiderResults {
 		results = append(results, InputResult{
-			ID:       i + 1,
-			DBName:   sr.DbID,
-			Question: sr.Question,
-			GTSQL:    sr.GoldSQL,
-			PredSQL:  sr.GeneratedSQL,
+			ID:         i + 1,
+			DBName:     sr.DbID,
+			Question:   sr.Question,
+			GTSQL:      sr.GoldSQL,
+			PredSQL:    sr.GeneratedSQL,
+			Difficulty: sr.Difficulty,
 		})
 	}
 

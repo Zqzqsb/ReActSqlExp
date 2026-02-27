@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"reactsql/internal/adapter"
@@ -200,16 +201,35 @@ func ConvertQueryResultFormat(result *adapter.QueryResult) [][]string {
 		return [][]string{}
 	}
 
-	// Create result matrix
+	colCount := len(result.Columns)
 	rows := make([][]string, 0, len(result.Rows)+1)
 	rows = append(rows, result.Columns) // Add header row
 
-	// Add data rows
+	// Add data rows — avoid fmt.Sprintf for common types
 	for _, row := range result.Rows {
-		dataRow := make([]string, 0, len(result.Columns))
-		for _, col := range result.Columns {
-			val := fmt.Sprintf("%v", row[col])
-			dataRow = append(dataRow, val)
+		dataRow := make([]string, colCount)
+		for j, col := range result.Columns {
+			val := row[col]
+			switch v := val.(type) {
+			case string:
+				dataRow[j] = v
+			case []byte:
+				dataRow[j] = string(v)
+			case int64:
+				dataRow[j] = strconv.FormatInt(v, 10)
+			case float64:
+				dataRow[j] = strconv.FormatFloat(v, 'f', -1, 64)
+			case bool:
+				if v {
+					dataRow[j] = "true"
+				} else {
+					dataRow[j] = "false"
+				}
+			case nil:
+				dataRow[j] = "<nil>"
+			default:
+				dataRow[j] = fmt.Sprintf("%v", v)
+			}
 		}
 		rows = append(rows, dataRow)
 	}

@@ -45,14 +45,15 @@ func ParseDBType(dbType string) DBType {
 
 // InputResult represents input SQL result structure
 type InputResult struct {
-	ID        int    `json:"id"`
-	DBName    string `json:"db_name"`
-	Question  string `json:"question"`
-	GTSQL     string `json:"gt_sql"`
-	PredSQL   string `json:"pred_sql"`
-	Thinking  string `json:"thinking,omitempty"`
-	Ambiguous string `json:"ambiguous,omitempty"`
-	SPJType   string `json:"spj_type,omitempty"` // SPJ type tag
+	ID         int    `json:"id"`
+	DBName     string `json:"db_name"`
+	Question   string `json:"question"`
+	GTSQL      string `json:"gt_sql"`
+	PredSQL    string `json:"pred_sql"`
+	Thinking   string `json:"thinking,omitempty"`
+	Ambiguous  string `json:"ambiguous,omitempty"`
+	SPJType    string `json:"spj_type,omitempty"`    // SPJ type tag
+	Difficulty string `json:"difficulty,omitempty"` // simple/moderate/challenging
 }
 
 // AnalysisResult represents analyzed SQL result structure
@@ -68,6 +69,7 @@ type AnalysisResult struct {
 	ErrorType    string `json:"error_type,omitempty"`
 	Thinking     string `json:"thinking[optional],omitempty"`
 	Ambiguous    string `json:"ambigous[optional],omitempty"`
+	Difficulty   string `json:"difficulty,omitempty"`
 	SPJType      string `json:"spj_type,omitempty"`   // SPJ type
 	SPJResult    string `json:"spj_result,omitempty"` // SPJ judgment description
 
@@ -109,6 +111,8 @@ type ErrorStatistics struct {
 	ConditionErrorCount int
 	OtherErrorCount     int
 	ErrorCounts         []ErrorCount
+
+	TimeoutCount int // queries that timed out during execution
 
 	// SPJ statistics
 	SPJCaseCount      int // Total SPJ cases

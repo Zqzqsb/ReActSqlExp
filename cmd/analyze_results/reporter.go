@@ -69,6 +69,7 @@ func (r *Reporter) GenerateSummaryReport(stats *ErrorStatistics, totalFiles int)
 			"order_error_count":      stats.OrderErrorCount,
 			"join_error_count":       stats.JoinErrorCount,
 			"condition_error_count":  stats.ConditionErrorCount,
+			"timeout_count":          stats.TimeoutCount,
 			"other_error_count":      stats.OtherErrorCount,
 		},
 		"error_counts": stats.ErrorCounts,
@@ -187,6 +188,8 @@ func (r *Reporter) PrintSummary(stats *ErrorStatistics, totalFiles int) {
 	printErrorType("Data Mismatch", stats.DataErrorCount, ColorCyan)
 	// Execution error
 	printErrorType("Execution Error", stats.ExecutionErrorCount, ColorRed)
+	// Timeout error
+	printErrorType("Timeout Error", stats.TimeoutCount, ColorRed)
 	// Other error
 	printErrorType("Other Error", stats.OtherErrorCount, ColorRed)
 
@@ -224,6 +227,92 @@ func (r *Reporter) PrintSummary(stats *ErrorStatistics, totalFiles int) {
 		Bold, ColorReset, ColorGreen, reportPath, ColorReset)
 }
 
+// DifficultyStats holds per-difficulty statistics
+type DifficultyStats struct {
+	Total     int
+	Correct   int // exact + semantic + ambiguous + reference_error
+	ErrorMap  map[string]int
+}
+
+// PrintDifficultyBreakdown prints accuracy breakdown by difficulty level
+func (r *Reporter) PrintDifficultyBreakdown(results []*AnalysisResult) {
+	// Collect per-difficulty stats
+	statsMap := make(map[string]*DifficultyStats)
+	for _, ar := range results {
+		if ar == nil {
+			continue
+		}
+		diff := ar.Difficulty
+		if diff == "" {
+			diff = "unknown"
+		}
+		ds, ok := statsMap[diff]
+		if !ok {
+			ds = &DifficultyStats{ErrorMap: make(map[string]int)}
+			statsMap[diff] = ds
+		}
+		ds.Total++
+		if ar.IsCorrect || ar.IsEquivalent || ar.ErrorType == "ambiguous_query" || ar.ErrorType == "reference_error" {
+			ds.Correct++
+		} else {
+			errType := ar.ErrorType
+			if errType == "" {
+				errType = "other"
+			}
+			ds.ErrorMap[errType]++
+		}
+	}
+
+	if len(statsMap) <= 1 {
+		// Only one difficulty or no difficulty info — skip breakdown
+		return
+	}
+
+	// Define display order
+	order := []string{"simple", "moderate", "challenging", "unknown"}
+
+	fmt.Printf("\n%s%sAccuracy by Difficulty%s\n", Bold, ColorPurple, ColorReset)
+	fmt.Printf("%s────────────────────────────────────────────────────────────%s\n", Bold, ColorReset)
+	fmt.Printf("%s%-15s %8s %8s %10s   %-30s%s\n", Bold, "Difficulty", "Total", "Correct", "Accuracy", "Error Breakdown", ColorReset)
+	fmt.Printf("%s────────────────────────────────────────────────────────────%s\n", Bold, ColorReset)
+
+	for _, diff := range order {
+		ds, ok := statsMap[diff]
+		if !ok {
+			continue
+		}
+
+		rate := float64(ds.Correct) / float64(ds.Total) * 100
+		rateColor := ColorRed
+		if rate >= 80 {
+			rateColor = ColorGreen
+		} else if rate >= 60 {
+			rateColor = ColorYellow
+		} else if rate >= 40 {
+			rateColor = ColorBlue
+		}
+
+		// Build error breakdown string
+		var errParts []string
+		// Sort error types by count desc
+		type kv struct{ k string; v int }
+		var sorted []kv
+		for k, v := range ds.ErrorMap {
+			sorted = append(sorted, kv{k, v})
+		}
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i].v > sorted[j].v })
+		for _, s := range sorted {
+			errParts = append(errParts, fmt.Sprintf("%s:%d", s.k, s.v))
+		}
+		errStr := strings.Join(errParts, ", ")
+
+		fmt.Printf("%-15s %8d %8d %s%9.1f%%%s   %s\n",
+			diff, ds.Total, ds.Correct, rateColor, rate, ColorReset, errStr)
+	}
+
+	fmt.Printf("%s────────────────────────────────────────────────────────────%s\n", Bold, ColorReset)
+}
+
 // ResultClassifier classifies results by type and outputs to directories
 type ResultClassifier struct {
 	baseDir string
@@ -246,6 +335,7 @@ func (rc *ResultClassifier) ClassifyAndSaveResults(results []*AnalysisResult) er
 		"incorrect_row_count",     // Row count error
 		"incorrect_data_mismatch", // Data mismatch error
 		"incorrect_execution",     // execution error
+		"incorrect_timeout",       // timeout error
 		"incorrect_reference",     // reference error
 		"incorrect_unknown",       // unknown error
 		"ambiguous_queries",       // ambiguous queries
@@ -285,6 +375,8 @@ func (rc *ResultClassifier) ClassifyAndSaveResults(results []*AnalysisResult) er
 				category = "incorrect_data_mismatch"
 			case "execution_error", "Execution Error":
 				category = "incorrect_execution"
+			case "timeout_error":
+				category = "incorrect_timeout"
 			case "reference_error":
 				category = "incorrect_reference"
 			default:
@@ -322,6 +414,7 @@ func (rc *ResultClassifier) saveResultToFile(result *AnalysisResult, filePath st
 		"db_id":         result.DBName,
 		"question":      result.Question,
 		"thinking":      result.Thinking,
+		"difficulty":    result.Difficulty,
 		"gt_sql":        result.GTSQL,
 		"pred_sql":      result.PredSQL,
 		"is_correct":    result.IsCorrect,
