@@ -77,7 +77,6 @@ func (a *SQLAnalyzer) AnalyzeSQL(input InputResult, gtResult, predResult *ExecRe
 
 	// Handle execution errors
 	if gtErr != nil {
-		fmt.Printf("Gold SQL execution error: %v\n", gtErr)
 		errorStr := gtErr.Error()
 		if strings.Contains(errorStr, "connection") ||
 			strings.Contains(errorStr, "database") {
@@ -94,7 +93,6 @@ func (a *SQLAnalyzer) AnalyzeSQL(input InputResult, gtResult, predResult *ExecRe
 	}
 
 	if predErr != nil {
-		fmt.Printf("Predicted SQL execution error: %v\n", predErr)
 		errorStr := predErr.Error()
 		if strings.Contains(errorStr, "connection") ||
 			strings.Contains(errorStr, "database") {
@@ -111,12 +109,6 @@ func (a *SQLAnalyzer) AnalyzeSQL(input InputResult, gtResult, predResult *ExecRe
 	}
 
 	// Both SQL executed successfully, check result equivalence
-	if gtResult.Success {
-		fmt.Printf("Gold SQL succeeded, rows: %d\n", len(gtResult.Rows)-1)
-	}
-	if predResult.Success {
-		fmt.Printf("Predicted SQL succeeded, rows: %d\n", len(predResult.Rows)-1)
-	}
 
 	// Check result equivalence
 	isEquiv, errorReason := a.areResultsEquivalent(gtResult, predResult)
@@ -164,50 +156,6 @@ func (a *SQLAnalyzer) AnalyzeSQL(input InputResult, gtResult, predResult *ExecRe
 	// Classify error type
 	errorType := a.classifyError(errorReason)
 	result.ErrorType = errorType
-
-	// Set error type color
-	errorColor := ColorRed
-	switch errorType {
-	case "exact_match", "semantic_match":
-		errorColor = ColorGreen
-	case "reference_error":
-		errorColor = ColorYellow
-	case "projection_error":
-		errorColor = ColorPurple
-	case "row_count_error":
-		errorColor = ColorBlue
-	case "data_mismatch":
-		errorColor = ColorCyan
-	default:
-		errorColor = ColorRed
-	}
-
-	// Print detailed debug info with color
-	fmt.Printf("\n%s===== Error Analysis Result =====%s\n", Bold, ColorReset)
-	fmt.Printf("%sReason:%s %s\n", Bold, ColorReset, errorReason)
-	fmt.Printf("%sClassification:%s %s%s%s\n", Bold, ColorReset, errorColor, errorType, ColorReset)
-
-	// Print detailed result comparison
-	if len(gtResult.Rows) > 0 && len(predResult.Rows) > 0 {
-		fmt.Printf("\n%sColumn Comparison:%s\n", Bold, ColorReset)
-		fmt.Printf("%sGold SQL columns:%s %v\n", ColorBlue, ColorReset, gtResult.Rows[0])
-		fmt.Printf("%sPred SQL columns:%s %v\n", ColorPurple, ColorReset, predResult.Rows[0])
-
-		maxRowsToPrint := 3
-		rowsToPrint := minInt(len(gtResult.Rows)-1, len(predResult.Rows)-1, maxRowsToPrint)
-		if rowsToPrint > 0 {
-			fmt.Printf("\n%sData Comparison (first %d rows):%s\n", Bold, rowsToPrint, ColorReset)
-			for i := 1; i <= rowsToPrint; i++ {
-				fmt.Printf("---------- %sRow %d%s ----------\n", Bold, i, ColorReset)
-				if i < len(gtResult.Rows) {
-					fmt.Printf("%sGold[%d]:%s %v\n", ColorBlue, i, ColorReset, gtResult.Rows[i])
-				}
-				if i < len(predResult.Rows) {
-					fmt.Printf("%sPred[%d]:%s %v\n", ColorPurple, i, ColorReset, predResult.Rows[i])
-				}
-			}
-		}
-	}
 
 	// Update statistics
 	a.updateErrorStats(errorType)
@@ -326,6 +274,38 @@ func (a *SQLAnalyzer) updateErrorStats(errorType string) {
 // GetStatistics returns error statistics
 func (a *SQLAnalyzer) GetStatistics() *ErrorStatistics {
 	return a.Stats
+}
+
+// MergeStats merges another analyzer's stats into this one
+func (a *SQLAnalyzer) MergeStats(other *ErrorStatistics) {
+	a.Stats.CorrectCount += other.CorrectCount
+	a.Stats.EquivalentCount += other.EquivalentCount
+	a.Stats.ExecutionErrorCount += other.ExecutionErrorCount
+	a.Stats.ReferenceErrorCount += other.ReferenceErrorCount
+	a.Stats.SyntaxErrorCount += other.SyntaxErrorCount
+	a.Stats.DBNotExistCount += other.DBNotExistCount
+	a.Stats.RowErrorCount += other.RowErrorCount
+	a.Stats.ProjectionErrorCount += other.ProjectionErrorCount
+	a.Stats.DataErrorCount += other.DataErrorCount
+	a.Stats.OtherErrorCount += other.OtherErrorCount
+	a.Stats.AmbiguousCount += other.AmbiguousCount
+	a.Stats.SPJCaseCount += other.SPJCaseCount
+	a.Stats.SPJCorrectCount += other.SPJCorrectCount
+	a.Stats.SPJIncorrectCount += other.SPJIncorrectCount
+
+	for _, ec := range other.ErrorCounts {
+		found := false
+		for i, existing := range a.Stats.ErrorCounts {
+			if existing.Type == ec.Type {
+				a.Stats.ErrorCounts[i].Count += ec.Count
+				found = true
+				break
+			}
+		}
+		if !found {
+			a.Stats.ErrorCounts = append(a.Stats.ErrorCounts, ec)
+		}
+	}
 }
 
 // NormalizeSQL normalizes SQL query for comparison
@@ -504,70 +484,70 @@ func (a *SQLAnalyzer) areResultsEquivalent(result1, result2 *ExecResult) (bool, 
 		}
 	}
 
-	// Step 5: Compare data content (order-independent)
-	// Convert each row to a unique string representation
-	rowStrings1 := make(map[string]bool)
-	rowStrings2 := make(map[string]bool)
+	// Step 5: Compare data content (order-independent, preserving duplicates)
+	// Use map[string]int to count occurrences (not map[string]bool which deduplicates)
+	rowCounts1 := make(map[string]int)
+	rowCounts2 := make(map[string]int)
 
 	for _, row := range convertedRows1 {
-		// Create row string representation
 		rowStr := strings.Join(row, "|")
-		rowStrings1[rowStr] = true
+		rowCounts1[rowStr]++
 	}
 
 	for _, row := range convertedRows2 {
-		// Create row string representation
 		rowStr := strings.Join(row, "|")
-		rowStrings2[rowStr] = true
+		rowCounts2[rowStr]++
 	}
 
-	// Compare row sets of both results
-	if len(rowStrings1) != len(rowStrings2) {
+	// Check if unique row counts match
+	if len(rowCounts1) != len(rowCounts2) {
 		return false, fmt.Sprintf("data row count mismatch (strategy: %s)", matchingStrategy)
 	}
 
-	// Check if each row exists in the other result set
-	// First try exact match
-	for rowStr := range rowStrings1 {
-		if !rowStrings2[rowStr] {
-			// Exact match failed, try loose matching (considering time types)
-			found := false
-			row1 := strings.Split(rowStr, "|")
+	// Check if each row exists in the other result set with the same count
+	for rowStr, count1 := range rowCounts1 {
+		count2, exists := rowCounts2[rowStr]
+		if exists && count1 == count2 {
+			continue
+		}
+		// Exact match failed, try loose matching (considering time types)
+		found := false
+		row1 := strings.Split(rowStr, "|")
 
-			for rowStr2 := range rowStrings2 {
-				row2 := strings.Split(rowStr2, "|")
+		for rowStr2, cnt2 := range rowCounts2 {
+			if cnt2 != count1 {
+				continue // multiplicity must match
+			}
+			row2 := strings.Split(rowStr2, "|")
 
-				// Check column count
-				if len(row1) != len(row2) {
-					continue
-				}
+			if len(row1) != len(row2) {
+				continue
+			}
 
-				// Compare column by column with loose value comparison
-				allMatch := true
-				for i := 0; i < len(row1); i++ {
-					if !areValuesEquivalent(row1[i], row2[i]) {
-						allMatch = false
-						break
-					}
-				}
-
-				if allMatch {
-					found = true
+			allMatch := true
+			for i := 0; i < len(row1); i++ {
+				if !areValuesEquivalent(row1[i], row2[i]) {
+					allMatch = false
 					break
 				}
 			}
 
-			if !found {
-				switch matchingStrategy {
-				case "exact_column_names":
-					return false, "data mismatch"
-				case "content_based_mapping":
-					return false, "column name mismatch and data mapping failed"
-				case "positional_comparison":
-					return false, "column name mismatch and positional data mismatch"
-				default:
-					return false, "data mismatch"
-				}
+			if allMatch {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			switch matchingStrategy {
+			case "exact_column_names":
+				return false, "data mismatch"
+			case "content_based_mapping":
+				return false, "column name mismatch and data mapping failed"
+			case "positional_comparison":
+				return false, "column name mismatch and positional data mismatch"
+			default:
+				return false, "data mismatch"
 			}
 		}
 	}

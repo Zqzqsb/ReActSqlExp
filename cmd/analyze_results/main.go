@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"reactsql/internal/adapter"
@@ -222,67 +225,122 @@ func main() {
 		}
 	}
 
-	// ── Step 8: Run analysis ──
+	// ── Step 8: Run analysis (concurrent, with DB connection pooling) ──
 	startTime := time.Now()
-	var analysisResults []*AnalysisResult
 
+	// Group queries by db_name for connection reuse
+	type dbGroup struct {
+		indices []int // indices into inputResults
+		dbPath  string
+	}
+	groups := make(map[string]*dbGroup)
 	for i, input := range inputResults {
-		if i > 0 && i%50 == 0 {
-			fmt.Printf("  ⏳ Processed %d/%d queries...\n", i, len(inputResults))
-		}
-
-		// Build database path
 		dbPath := input.DBName
 		if detectedDBType == "pg" || detectedDBType == "postgres" || detectedDBType == "postgresql" {
 			dbPath = "pg:" + input.DBName
 		} else {
 			dbPath = filepath.Join(resolvedDBDir, input.DBName, input.DBName+".sqlite")
 		}
+		g, ok := groups[input.DBName]
+		if !ok {
+			g = &dbGroup{dbPath: dbPath}
+			groups[input.DBName] = g
+		}
+		g.indices = append(g.indices, i)
+	}
 
-		// Execute SQL queries
-		gtResult := &ExecResult{Success: false}
-		predResult := &ExecResult{Success: false}
-		var gtErr, predErr error
+	// Pre-allocate results slice (indexed by original position)
+	analysisResults := make([]*AnalysisResult, len(inputResults))
 
-		dbAdapter, err := adapter.NewAdapter(&adapter.DBConfig{
-			Type:     "sqlite",
-			FilePath: dbPath,
-		})
-		if err != nil {
-			gtResult.Error = fmt.Sprintf("DB connection error: %v", err)
-			predResult.Error = fmt.Sprintf("DB connection error: %v", err)
-		} else {
-			if err := dbAdapter.Connect(ctx); err != nil {
-				gtResult.Error = fmt.Sprintf("DB connection error: %v", err)
-				predResult.Error = fmt.Sprintf("DB connection error: %v", err)
-			} else {
-				// Execute gold SQL
-				gtData, ge := dbAdapter.ExecuteQuery(ctx, input.GTSQL)
-				gtErr = ge
-				if ge == nil {
-					gtResult.Success = true
-					gtResult.Rows = ConvertQueryResultFormat(gtData)
+	// Thread-safe analyzer: each goroutine gets its own analyzer, merge stats at end
+	var mu sync.Mutex
+	var processed int64
+	total := int64(len(inputResults))
+
+	// Worker pool: process DB groups concurrently
+	workers := runtime.NumCPU()
+	if workers > 8 {
+		workers = 8
+	}
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+
+	for dbName, group := range groups {
+		wg.Add(1)
+		sem <- struct{}{} // acquire slot
+
+		go func(dbName string, g *dbGroup) {
+			defer wg.Done()
+			defer func() { <-sem }() // release slot
+
+			localAnalyzer := NewSQLAnalyzer()
+
+			// Open one connection for all queries in this DB group
+			dbAdapter, err := adapter.NewAdapter(&adapter.DBConfig{
+				Type:     "sqlite",
+				FilePath: g.dbPath,
+			})
+
+			var connected bool
+			if err == nil {
+				if err2 := dbAdapter.Connect(ctx); err2 == nil {
+					connected = true
+					defer dbAdapter.Close()
 				} else {
-					gtResult.Error = ge.Error()
-				}
-
-				// Execute predicted SQL
-				predData, pe := dbAdapter.ExecuteQuery(ctx, input.PredSQL)
-				predErr = pe
-				if pe == nil {
-					predResult.Success = true
-					predResult.Rows = ConvertQueryResultFormat(predData)
-				} else {
-					predResult.Error = pe.Error()
+					err = err2
 				}
 			}
-			dbAdapter.Close()
-		}
 
-		// Analyze
-		analysisResult := analyzer.AnalyzeSQL(input, gtResult, predResult, gtErr, predErr)
-		analysisResults = append(analysisResults, analysisResult)
+			for _, idx := range g.indices {
+				input := inputResults[idx]
+				gtResult := &ExecResult{Success: false}
+				predResult := &ExecResult{Success: false}
+				var gtErr, predErr error
+
+				if !connected {
+					errMsg := fmt.Sprintf("DB connection error: %v", err)
+					gtResult.Error = errMsg
+					predResult.Error = errMsg
+				} else {
+					// Execute gold SQL
+					gtData, ge := dbAdapter.ExecuteQuery(ctx, input.GTSQL)
+					gtErr = ge
+					if ge == nil {
+						gtResult.Success = true
+						gtResult.Rows = ConvertQueryResultFormat(gtData)
+					} else {
+						gtResult.Error = ge.Error()
+					}
+
+					// Execute predicted SQL
+					predData, pe := dbAdapter.ExecuteQuery(ctx, input.PredSQL)
+					predErr = pe
+					if pe == nil {
+						predResult.Success = true
+						predResult.Rows = ConvertQueryResultFormat(predData)
+					} else {
+						predResult.Error = pe.Error()
+					}
+				}
+
+				ar := localAnalyzer.AnalyzeSQL(input, gtResult, predResult, gtErr, predErr)
+				analysisResults[idx] = ar
+
+				done := atomic.AddInt64(&processed, 1)
+				if done%100 == 0 || done == total {
+					fmt.Printf("  ⏳ Processed %d/%d queries...\r", done, total)
+				}
+			}
+
+			// Merge local stats into global analyzer
+			mu.Lock()
+			analyzer.MergeStats(localAnalyzer.Stats)
+			mu.Unlock()
+		}(dbName, group)
 	}
+
+	wg.Wait()
+	fmt.Println() // newline after progress
 
 	elapsedTime := time.Since(startTime)
 	stats := analyzer.GetStatistics()

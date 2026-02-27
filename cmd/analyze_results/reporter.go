@@ -277,13 +277,13 @@ func (rc *ResultClassifier) ClassifyAndSaveResults(results []*AnalysisResult) er
 		} else {
 			// Classify by error type
 			switch result.ErrorType {
-			case "Projection Error":
+			case "projection_error", "Projection Error":
 				category = "incorrect_projection"
-			case "Row Count Error":
+			case "row_count_error", "Row Count Error":
 				category = "incorrect_row_count"
 			case "data_mismatch":
 				category = "incorrect_data_mismatch"
-			case "Execution Error":
+			case "execution_error", "Execution Error":
 				category = "incorrect_execution"
 			case "reference_error":
 				category = "incorrect_reference"
